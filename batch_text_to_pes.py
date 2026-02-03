@@ -2,6 +2,16 @@
 """
 Simple CLI tool to convert text to embroidery files using Ink/Stitch fonts.
 Usage: python batch_text_to_pes.py "Text" output.pes --font FontName --scale 100
+
+Can also be imported as a library:
+    from batch_text_to_pes import text_to_embroidery
+
+    text_to_embroidery(
+        text="Hello World",
+        output_path="output.pes",
+        font="CooperMarif",
+        scale=100
+    )
 """
 
 import sys
@@ -57,6 +67,137 @@ def create_minimal_svg():
     return svg
 
 
+def text_to_embroidery(
+    text,
+    output_path,
+    font='CooperMarif',
+    scale=100,
+    trim='off',
+    color_sort='off',
+    text_align='left',
+    letter_spacing=0.0,
+    word_spacing=0.0,
+    line_height=0.0,
+    use_command_symbols=False
+):
+    """
+    Convert text to an embroidery file using Ink/Stitch fonts.
+
+    This function can be imported and called from other Python scripts.
+
+    Args:
+        text (str): Text to embroider
+        output_path (str): Output file path (.pes, .dst, .jef, etc.)
+        font (str): Font name (default: 'CooperMarif')
+        scale (int): Scale percentage (default: 100)
+        trim (str): Trim option - 'off', 'line', 'word', 'glyph' (default: 'off')
+        color_sort (str): Color sorting - 'off', 'all', 'line', 'word' (default: 'off')
+        text_align (str): Text alignment - 'left', 'center', 'right', 'block', 'letterspacing' (default: 'left')
+        letter_spacing (float): Letter spacing in mm (default: 0.0)
+        word_spacing (float): Word spacing in mm (default: 0.0)
+        line_height (float): Line height in mm (default: 0.0)
+        use_command_symbols (bool): Use command symbols (default: False)
+
+    Returns:
+        str: Path to the created embroidery file
+
+    Raises:
+        ValueError: If output format is not supported or file cannot be created
+        Exception: If embroidery generation fails
+
+    Example:
+        >>> from batch_text_to_pes import text_to_embroidery
+        >>> output = text_to_embroidery(
+        ...     text="Hello World",
+        ...     output_path="output.pes",
+        ...     font="Apex Lake",
+        ...     scale=150
+        ... )
+        >>> print(f"Created: {output}")
+    """
+    # Determine output format from file extension
+    output_format = os.path.splitext(output_path)[1][1:].lower()
+    if not output_format:
+        output_format = 'pes'
+        output_path += '.pes'
+
+    # Create temporary SVG file
+    svg = create_minimal_svg()
+    svg_file = tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False, encoding='utf-8')
+    svg_file.write(etree.tostring(svg, encoding='unicode'))
+    svg_file.close()
+
+    try:
+        # Create BatchLettering instance
+        ext = BatchLettering()
+
+        # Set up arguments
+        cmd_args = [
+            svg_file.name,
+            f'--text={text}',
+            f'--font={font}',
+            f'--scale={scale}',
+            f'--file-formats={output_format}',
+            f'--trim={trim}',
+            f'--color-sort={color_sort}',
+            f'--text-align={text_align}',
+            f'--letter_spacing={letter_spacing}',
+            f'--word_spacing={word_spacing}',
+            f'--line_height={line_height}',
+        ]
+        if use_command_symbols:
+            cmd_args.append('--use-command-symbols=true')
+
+        # Redirect stdout to capture zip output
+        output_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.zip', delete=False)
+        original_stdout = sys.stdout
+
+        class StdoutWrapper:
+            def __init__(self, file):
+                self.buffer = file
+            def write(self, data):
+                if isinstance(data, str):
+                    data = data.encode('utf-8')
+                self.buffer.write(data)
+            def flush(self):
+                self.buffer.flush()
+
+        sys.stdout = StdoutWrapper(output_file)
+
+        try:
+            ext.run(cmd_args)
+        except SystemExit:
+            pass
+        finally:
+            sys.stdout = original_stdout
+            output_file.close()
+
+        # Extract file from the zip
+        with ZipFile(output_file.name, 'r') as zip_file:
+            output_dir = os.path.dirname(output_path) or '.'
+
+            files = [f for f in zip_file.namelist() if f.endswith(f'.{output_format}')]
+            if not files:
+                raise ValueError(f"No {output_format} file found in output")
+
+            # Extract and rename to final output path
+            zip_file.extract(files[0], output_dir)
+            extracted = os.path.join(output_dir, files[0])
+
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            os.rename(extracted, output_path)
+
+            return output_path
+
+    finally:
+        # Cleanup
+        if os.path.exists(svg_file.name):
+            os.remove(svg_file.name)
+        if 'output_file' in locals() and os.path.exists(output_file.name):
+            os.remove(output_file.name)
+
+
 def main():
     import argparse
 
@@ -92,89 +233,25 @@ Examples:
 
     args = parser.parse_args()
 
-    # Determine output format from file extension
-    output_format = os.path.splitext(args.output)[1][1:].lower()
-    if not output_format:
-        output_format = 'pes'
-        args.output += '.pes'
-
-    # Create temporary SVG file
-    svg = create_minimal_svg()
-    svg_file = tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False, encoding='utf-8')
-    svg_file.write(etree.tostring(svg, encoding='unicode'))
-    svg_file.close()
-
     try:
-        # Create BatchLettering instance
-        ext = BatchLettering()
-
-        # Set up arguments
-        cmd_args = [
-            svg_file.name,
-            f'--text={args.text}',
-            f'--font={args.font}',
-            f'--scale={args.scale}',
-            f'--file-formats={output_format}',
-            f'--trim={args.trim}',
-            f'--color-sort={args.color_sort}',
-            f'--text-align={args.text_align}',
-            f'--letter_spacing={args.letter_spacing}',
-            f'--word_spacing={args.word_spacing}',
-            f'--line_height={args.line_height}',
-        ]
-        if args.use_command_symbols:
-            cmd_args.append('--use-command-symbols=true')
-
-        # Redirect stdout to capture zip output
-        output_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.zip', delete=False)
-        original_stdout = sys.stdout
-
-        class StdoutWrapper:
-            def __init__(self, file):
-                self.buffer = file
-            def write(self, data):
-                if isinstance(data, str):
-                    data = data.encode('utf-8')
-                self.buffer.write(data)
-            def flush(self):
-                self.buffer.flush()
-
-        sys.stdout = StdoutWrapper(output_file)
-
-        try:
-            ext.run(cmd_args)
-        except SystemExit:
-            pass
-        finally:
-            sys.stdout = original_stdout
-            output_file.close()
-
-        # Extract file from the zip
-        with ZipFile(output_file.name, 'r') as zip_file:
-            output_dir = os.path.dirname(args.output) or '.'
-
-            files = [f for f in zip_file.namelist() if f.endswith(f'.{output_format}')]
-            if not files:
-                print(f"Error: No {output_format} file found in output")
-                return False
-
-            # Extract and rename to final output path
-            zip_file.extract(files[0], output_dir)
-            extracted = os.path.join(output_dir, files[0])
-
-            if os.path.exists(args.output):
-                os.remove(args.output)
-            os.rename(extracted, args.output)
-
-            print(f"✓ Created {args.output}")
-            return True
-
-    finally:
-        # Cleanup
-        if os.path.exists(svg_file.name):
-            os.remove(svg_file.name)
-        if 'output_file' in locals() and os.path.exists(output_file.name):
-            os.remove(output_file.name)
+        output = text_to_embroidery(
+            text=args.text,
+            output_path=args.output,
+            font=args.font,
+            scale=args.scale,
+            trim=args.trim,
+            color_sort=args.color_sort,
+            text_align=args.text_align,
+            letter_spacing=args.letter_spacing,
+            word_spacing=args.word_spacing,
+            line_height=args.line_height,
+            use_command_symbols=args.use_command_symbols
+        )
+        print(f"✓ Created {output}")
+        return True
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
 
 
 if __name__ == "__main__":
