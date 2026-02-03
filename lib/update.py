@@ -50,13 +50,13 @@ def update_inkstitch_document(svg, selection=None, warn_unversioned=True):
             return
 
         # update elements
-        if selection is not None:
-            # the updater extension might want to only update selected elements
-            for element in selection:
-                update_legacy_params(document, EmbroideryElement(element), file_version, INKSTITCH_SVG_VERSION)
-        else:
-            # this is the automatic update when a legacy inkstitch svg version was recognized
-            automatic_version_update(document, file_version, INKSTITCH_SVG_VERSION, warn_unversioned)
+        # if selection is not None:
+        #     # the updater extension might want to only update selected elements
+        #     for element in selection:
+        #         update_legacy_params(document, EmbroideryElement(element), file_version, INKSTITCH_SVG_VERSION)
+        # else:
+        #     # this is the automatic update when a legacy inkstitch svg version was recognized
+        #     automatic_version_update(document, file_version, INKSTITCH_SVG_VERSION, warn_unversioned)
 
         _update_inkstitch_svg_version(svg)
 

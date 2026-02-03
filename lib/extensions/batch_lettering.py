@@ -18,7 +18,7 @@ import pystitch
 
 from ..extensions.lettering_along_path import TextAlongPath
 from ..i18n import _
-from ..lettering import get_font_by_name
+# Deferred import to avoid circular dependency: from ..lettering import get_font_by_name
 from ..output import write_embroidery_file
 from ..stitch_plan import stitch_groups_to_stitch_plan
 from ..svg import get_correction_transform
@@ -63,6 +63,8 @@ class BatchLettering(InkstitchExtension):
         if not self.options.font:
             errormsg(_("Please specify a font"))
             return
+        # Lazy import to avoid circular dependency
+        from ..lettering import get_font_by_name
         self.font = get_font_by_name(self.options.font, False)
         if self.font is None:
             errormsg(_("Please specify a valid font name."))

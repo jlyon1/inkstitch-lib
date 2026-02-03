@@ -11,7 +11,7 @@ from inkex.units import convert_unit
 
 from ..elements import Stroke
 from ..i18n import _
-from ..lettering import get_font_by_id
+# Deferred import to avoid circular dependency: from ..lettering import get_font_by_id
 from ..svg import get_correction_transform
 from ..svg.tags import EMBROIDERABLE_TAGS, INKSTITCH_LETTERING, SVG_GROUP_TAG
 from ..utils import DotDict
@@ -75,6 +75,8 @@ class TextAlongPath:
         self.glyphs = []
 
         self.load_settings()
+        # Lazy import to avoid circular dependency
+        from ..lettering import get_font_by_id
         self.font = get_font_by_id(self.settings.font, False)
         if self.font is None:
             errormsg(_("Couldn't identify the font specified in the lettering group."))

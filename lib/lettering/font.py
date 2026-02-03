@@ -15,7 +15,7 @@ import inkex
 from ..commands import add_commands, ensure_command_symbols
 from ..elements import SatinColumn, Stroke, nodes_to_elements
 from ..exceptions import InkstitchException
-from ..extensions.lettering_custom_font_dir import get_custom_font_dir
+# Deferred import to avoid circular dependency: from ..extensions.lettering_custom_font_dir import get_custom_font_dir
 from ..i18n import _, get_languages
 from ..marker import ensure_marker_symbols, has_marker, is_grouped_with_marker
 from ..stitches.auto_satin import auto_satin
@@ -225,6 +225,8 @@ class Font(object):
             return self.name + '*'
 
     def is_custom_font(self):
+        # Lazy import to avoid circular dependency
+        from ..extensions.lettering_custom_font_dir import get_custom_font_dir
         custom_dir = get_custom_font_dir()
         if not custom_dir:
             return False

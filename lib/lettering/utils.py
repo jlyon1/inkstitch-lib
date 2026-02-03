@@ -5,7 +5,7 @@
 
 import os
 
-from ..extensions.lettering_custom_font_dir import get_custom_font_dir
+# Deferred import to avoid circular dependency: from ..extensions.lettering_custom_font_dir import get_custom_font_dir
 from ..lettering import Font
 from ..utils import get_bundled_dir, get_user_dir
 
@@ -29,6 +29,9 @@ def get_font_list(show_font_path_warning=True):
 
 
 def get_font_paths():
+    # Lazy import to avoid circular dependency
+    from ..extensions.lettering_custom_font_dir import get_custom_font_dir
+
     font_paths = {
         os.path.join(get_bundled_dir("fonts"), "src"),
         os.path.expanduser("~/.inkstitch/fonts/"),
