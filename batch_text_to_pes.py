@@ -1,3 +1,6 @@
+
+from fastapi.responses import FileResponse, JSONResponse
+
 #!/usr/bin/env python3
 """
 Simple CLI tool to convert text to embroidery files using Ink/Stitch fonts.
@@ -18,9 +21,39 @@ import sys
 import os
 import tempfile
 from zipfile import ZipFile
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Query
+import uuid
+
+app = FastAPI(dependencies=[])
 
 # Add project root to path
+# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Font preview directory (adjust if needed)
+FONT_PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'src')
+from lib.lettering.utils import get_font_list
+
+# API route to list available fonts with preview info
+@app.get("/fonts")
+async def list_fonts():
+    fonts = get_font_list(show_font_path_warning=False)
+    font_list = []
+    for font in sorted(fonts, key=lambda f: f.name):
+        preview_path = None
+        if hasattr(font, 'preview_image') and font.preview_image:
+            preview_path = font.preview_image
+        elif hasattr(font, 'preview') and font.preview:
+            preview_path = font.preview
+        preview_url = None
+        if preview_path:
+            preview_url = f"/fonts/preview/{font.name}"
+        font_list.append({
+            "name": font.name,
+            "preview": preview_url
+        })
+    return JSONResponse(content=font_list)
 
 from lxml import etree
 from lib.extensions.batch_lettering import BatchLettering
@@ -254,12 +287,52 @@ Examples:
         return False
 
 
-if __name__ == "__main__":
-    try:
-        success = main()
-        sys.exit(0 if success else 1)
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+@app.get("/batch_text_to_pes")
+async def batch_text_to_pes_endpoint(
+    text: str = Query(..., description="Text to embroider"),
+    font: str = Query('CooperMarif', description="Font name"),
+    scale: int = Query(100, description="Scale percentage"),
+    trim: str = Query('off', description="Trim option: off, line, word, glyph"),
+    color_sort: str = Query('off', description="Color sorting: off, all, line, word"),
+    text_align: str = Query('left', description="Text alignment: left, center, right, block, letterspacing"),
+    letter_spacing: float = Query(0.0, description="Letter spacing in mm"),
+    word_spacing: float = Query(0.0, description="Word spacing in mm"),
+    line_height: float = Query(0.0, description="Line height in mm"),
+    use_command_symbols: bool = Query(False, description="Use command symbols")
+):
+    unique_id = str(uuid.uuid4())
+    output_filename = f"output_{unique_id}.pes"
+    output = text_to_embroidery(
+        text=text,
+        output_path=output_filename,
+        font=font,
+        scale=scale,
+        trim=trim,
+        color_sort=color_sort,
+        text_align=text_align,
+        letter_spacing=letter_spacing,
+        word_spacing=word_spacing,
+        line_height=line_height,
+        use_command_symbols=use_command_symbols
+    )
+    def iterfile():
+        with open(output_filename, "rb") as f:
+            yield from f
+    headers = {"Content-Disposition": f"attachment; filename={output_filename}"}
+    return StreamingResponse(iterfile(), media_type="application/octet-stream", headers=headers)
+
+# API route to serve font preview images by font name
+@app.get("/fonts/preview/{font_name}")
+async def get_font_preview(font_name: str):
+    fonts = get_font_list(show_font_path_warning=False)
+    font = next((f for f in fonts if f.name == font_name), None)
+    if not font:
+        return JSONResponse(status_code=404, content={"detail": "Font not found"})
+    preview_path = None
+    if hasattr(font, 'preview_image') and font.preview_image:
+        preview_path = font.preview_image
+    elif hasattr(font, 'preview') and font.preview:
+        preview_path = font.preview
+    if not preview_path or not os.path.exists(preview_path):
+        return JSONResponse(status_code=404, content={"detail": "Preview not found"})
+    return FileResponse(preview_path)

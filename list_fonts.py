@@ -7,6 +7,7 @@ Usage: python list_fonts.py
 import sys
 import os
 
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -23,6 +24,3 @@ def main():
     print(f"\nTotal: {len(fonts)} fonts")
     print("\nUsage: python batch_text_to_pes.py 'Your Text' output.pes --font 'FontName' --target-width-inches 2.5")
     print("Use font_info.py 'FontName' for detailed information about a specific font.")
-
-if __name__ == "__main__":
-    main()
