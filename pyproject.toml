@@ -1,0 +1,40 @@
+[project]
+name = "inkstitch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "colormath2",
+    "diskcache",
+    "flake8==7.3.0",
+    "flask>=2.2.0",
+    "flask-cors",
+    "fonttools",
+    "inkex",
+    "jinja2>2.9",
+    "lxml>=4.5.0,<6.0.0",
+    "mypy==1.19.1",
+    "networkx",
+    "numpy==2.2.6",
+    "platformdirs",
+    "pystitch",
+    "pytest",
+    "pywin32 ; sys_platform == 'win32'",
+    "pywinutils ; sys_platform == 'win32'",
+    "requests",
+    "shapely>=2.0.0",
+    "tomli",
+    "trimesh>=3.15.2",
+    "types-appdirs",
+    "types-lxml",
+    "types-networkx",
+    "types-pywin32",
+    "types-shapely",
+    "types-wxpython",
+    "wxpython>=4.1.1",
+    "pycairo>=1.20.0",
+]
+
+[tool.uv.sources]
+inkex = { git = "https://gitlab.com/inkscape/extensions.git", rev = "EXTENSIONS_AT_INKSCAPE_1.4.1" }
