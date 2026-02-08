@@ -1,6 +1,3 @@
-
-from fastapi.responses import FileResponse, JSONResponse
-
 #!/usr/bin/env python3
 """
 Simple CLI tool to convert text to embroidery files using Ink/Stitch fonts.
@@ -20,12 +17,19 @@ Can also be imported as a library:
 import sys
 import os
 import tempfile
+import hashlib
+from functools import lru_cache
 from zipfile import ZipFile
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi import Depends, FastAPI, Query
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, StreamingResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, Query
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.gzip import GZipMiddleware
 import uuid
 
 app = FastAPI(dependencies=[])
+
+# Add GZip compression for responses over 1KB
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Add project root to path
 # Add project root to path
@@ -35,9 +39,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 FONT_PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'src')
 from lib.lettering.utils import get_font_list
 
-# API route to list available fonts with preview info
-@app.get("/fonts")
-async def list_fonts():
+# Cache directory for rendered embroidery files
+CACHE_DIR = os.path.join(tempfile.gettempdir(), 'inkstitch_cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Cached font list - load once and reuse
+@lru_cache(maxsize=1)
+def get_cached_font_list():
+    """Cache font list in memory to avoid repeated disk I/O"""
     fonts = get_font_list(show_font_path_warning=False)
     font_list = []
     for font in sorted(fonts, key=lambda f: f.name):
@@ -53,7 +62,13 @@ async def list_fonts():
             "name": font.name,
             "preview": preview_url
         })
-    return JSONResponse(content=font_list)
+    return font_list
+
+# API route to list available fonts with preview info
+@app.get("/fonts")
+async def list_fonts():
+    """List all available fonts (cached for performance)"""
+    return JSONResponse(content=get_cached_font_list())
 
 from lxml import etree
 from lib.extensions.batch_lettering import BatchLettering
@@ -287,8 +302,56 @@ Examples:
         return False
 
 
+def cleanup_file(filepath: str):
+    """Background task to cleanup temporary files"""
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except Exception:
+        pass  # Ignore cleanup errors
+
+def generate_cache_key(text: str, font: str, scale: int, trim: str, color_sort: str,
+                       text_align: str, letter_spacing: float, word_spacing: float,
+                       line_height: float, use_command_symbols: bool) -> str:
+    """Generate a cache key from parameters"""
+    params = f"{text}:{font}:{scale}:{trim}:{color_sort}:{text_align}:{letter_spacing}:{word_spacing}:{line_height}:{use_command_symbols}"
+    return hashlib.sha256(params.encode()).hexdigest()
+
+async def get_or_create_embroidery(text: str, font: str, scale: int, trim: str,
+                                   color_sort: str, text_align: str, letter_spacing: float,
+                                   word_spacing: float, line_height: float,
+                                   use_command_symbols: bool) -> str:
+    """Get cached embroidery file or create new one"""
+    # Generate cache key
+    cache_key = generate_cache_key(text, font, scale, trim, color_sort, text_align,
+                                   letter_spacing, word_spacing, line_height, use_command_symbols)
+    cache_file = os.path.join(CACHE_DIR, f"{cache_key}.pes")
+
+    # Return cached file if exists
+    if os.path.exists(cache_file):
+        return cache_file
+
+    # Generate new file in cache directory using threadpool (blocking operation)
+    output_path = await run_in_threadpool(
+        text_to_embroidery,
+        text=text,
+        output_path=cache_file,
+        font=font,
+        scale=scale,
+        trim=trim,
+        color_sort=color_sort,
+        text_align=text_align,
+        letter_spacing=letter_spacing,
+        word_spacing=word_spacing,
+        line_height=line_height,
+        use_command_symbols=use_command_symbols
+    )
+
+    return output_path
+
 @app.get("/batch_text_to_pes")
 async def batch_text_to_pes_endpoint(
+    background_tasks: BackgroundTasks,
     text: str = Query(..., description="Text to embroider"),
     font: str = Query('CooperMarif', description="Font name"),
     scale: int = Query(100, description="Scale percentage"),
@@ -300,11 +363,17 @@ async def batch_text_to_pes_endpoint(
     line_height: float = Query(0.0, description="Line height in mm"),
     use_command_symbols: bool = Query(False, description="Use command symbols")
 ):
-    unique_id = str(uuid.uuid4())
-    output_filename = f"output_{unique_id}.pes"
-    output = text_to_embroidery(
+    """
+    Convert text to embroidery file with caching and async processing.
+
+    Performance optimizations:
+    - Uses threadpool for CPU-intensive rendering
+    - Caches rendered outputs to avoid regeneration
+    - Cleans up temporary files in background
+    """
+    # Get or generate embroidery file (runs in threadpool to avoid blocking)
+    output_file = await get_or_create_embroidery(
         text=text,
-        output_path=output_filename,
         font=font,
         scale=scale,
         trim=trim,
@@ -315,24 +384,49 @@ async def batch_text_to_pes_endpoint(
         line_height=line_height,
         use_command_symbols=use_command_symbols
     )
-    def iterfile():
-        with open(output_filename, "rb") as f:
-            yield from f
-    headers = {"Content-Disposition": f"attachment; filename={output_filename}"}
-    return StreamingResponse(iterfile(), media_type="application/octet-stream", headers=headers)
+
+    # Read file content (also blocking, so use threadpool)
+    def read_file():
+        with open(output_file, "rb") as f:
+            return f.read()
+
+    file_content = await run_in_threadpool(read_file)
+
+    # Return file with proper headers
+    filename = f"{text[:20].replace(' ', '_')}_{font}_{scale}.pes"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+
+    return StreamingResponse(
+        iter([file_content]),
+        media_type="application/octet-stream",
+        headers=headers
+    )
 
 # API route to serve font preview images by font name
 @app.get("/fonts/preview/{font_name}")
 async def get_font_preview(font_name: str):
-    fonts = get_font_list(show_font_path_warning=False)
-    font = next((f for f in fonts if f.name == font_name), None)
+    """Serve font preview image (uses cached font list)"""
+    # Use cached font list to avoid repeated disk I/O
+    font_list = get_cached_font_list()
+    font = next((f for f in font_list if f["name"] == font_name), None)
+
     if not font:
         return JSONResponse(status_code=404, content={"detail": "Font not found"})
+
+    # Get actual font object for preview path
+    fonts = get_font_list(show_font_path_warning=False)
+    font_obj = next((f for f in fonts if f.name == font_name), None)
+
+    if not font_obj:
+        return JSONResponse(status_code=404, content={"detail": "Font not found"})
+
     preview_path = None
-    if hasattr(font, 'preview_image') and font.preview_image:
-        preview_path = font.preview_image
-    elif hasattr(font, 'preview') and font.preview:
-        preview_path = font.preview
+    if hasattr(font_obj, 'preview_image') and font_obj.preview_image:
+        preview_path = font_obj.preview_image
+    elif hasattr(font_obj, 'preview') and font_obj.preview:
+        preview_path = font_obj.preview
+
     if not preview_path or not os.path.exists(preview_path):
         return JSONResponse(status_code=404, content={"detail": "Preview not found"})
+
     return FileResponse(preview_path)

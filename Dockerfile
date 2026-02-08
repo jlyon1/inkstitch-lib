@@ -48,6 +48,10 @@ EXPOSE 8000
 
 # Set environment variables for production
 ENV PYTHONUNBUFFERED=1
+ENV WORKERS=2
 
-# Start FastAPI app with uv
-CMD ["uv", "run", "uvicorn", "batch_text_to_pes:app", "--host", "0.0.0.0", "--port", "8000"]
+# Install gunicorn in the uv environment
+RUN uv pip install gunicorn
+
+# Start FastAPI app with Gunicorn + Uvicorn workers for better concurrency
+CMD ["uv", "run", "gunicorn", "-c", "gunicorn_config.py", "batch_text_to_pes:app"]
