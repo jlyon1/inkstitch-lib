@@ -37,13 +37,15 @@ gunicorn -c gunicorn_config.py batch_text_to_pes:app
 
 That's it! Your API is now optimized.
 
-## 🐳 Docker Deployment (Even Easier)
+## 🐳 Docker Deployment (Fastest)
 
-### 1. Build
+### 1. Build (API-only, 2-3 min)
 
 ```bash
-docker build -t inkstitch-api .
+docker build -f Dockerfile.api -t inkstitch-api .
 ```
+
+**Note**: Use `Dockerfile.api` for fast builds (~2-3 min). The original `Dockerfile` includes GUI dependencies and takes 20+ minutes to build.
 
 ### 2. Run
 
@@ -60,6 +62,8 @@ docker run -d \
 ```bash
 docker logs -f inkstitch-api
 ```
+
+**See [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) for production setup, nginx config, and troubleshooting.**
 
 ## 📊 Test the Improvements
 

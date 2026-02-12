@@ -1,5 +1,31 @@
 # Ink/Stitch: An open source machine embroidery design platform based on Inkscape
 
+## Fork Notice
+
+This is a fork of [Ink/Stitch](https://github.com/inkstitch/inkstitch) that adds web API functionality for programmatic text-to-embroidery conversion.
+
+### Added Features
+
+**Text-to-Embroidery API** (`batch_text_to_pes.py`):
+- FastAPI web service for converting text to embroidery files (.pes, .dst, .jef, etc.)
+- RESTful API endpoints:
+  - `GET /fonts` - List all available Ink/Stitch fonts with preview images
+  - `GET /batch_text_to_pes` - Convert text to embroidery with customizable parameters (font, scale, trim, alignment, spacing)
+  - `GET /fonts/preview/{font_name}` - Serve font preview images
+- Can be used as a CLI tool or imported as a Python library
+- Includes response caching and async processing for performance
+- Supports all Ink/Stitch lettering options (trim, color sorting, text alignment, letter/word/line spacing)
+
+**Docker Deployment Options**:
+- `Dockerfile`: Full installation using Ubuntu 24.04 and uv package manager
+- `Dockerfile.api`: Lightweight build without GUI dependencies (~3-5 minute build time vs 20+ minutes)
+- `Dockerfile.simple`: Minimal API-only build without wxPython or PyGObject
+- `Dockerfile.working`: Optimized build that copies inkex from local venv to avoid compilation issues
+
+See `DOCKER_DEPLOYMENT.md` for deployment instructions.
+
+---
+
 Want to design embroidery pattern files (PES, DST, and many more) using **free, open source software?**
 
 ![Ink/Stitch Logo](images/logos/inkstitch_colour_logo.svg)

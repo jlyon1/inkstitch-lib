@@ -163,6 +163,14 @@ def text_to_embroidery(
         ... )
         >>> print(f"Created: {output}")
     """
+    import threading
+
+    # Fix for FastAPI thread pool compatibility with InkStitch's threading checks
+    # InkStitch expects threads to have a 'stop' Event attribute (see lib/utils/threading.py:21)
+    current_thread = threading.current_thread()
+    if not hasattr(current_thread, 'stop') or not isinstance(getattr(current_thread, 'stop', None), threading.Event):
+        current_thread.stop = threading.Event()
+
     # Determine output format from file extension
     output_format = os.path.splitext(output_path)[1][1:].lower()
     if not output_format:
@@ -393,7 +401,10 @@ async def batch_text_to_pes_endpoint(
     file_content = await run_in_threadpool(read_file)
 
     # Return file with proper headers
-    filename = f"{text[:20].replace(' ', '_')}_{font}_{scale}.pes"
+    # Sanitize filename to only ASCII characters for HTTP header compatibility
+    safe_text = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in text[:20])
+    safe_font = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in font)
+    filename = f"{safe_text.replace(' ', '_')}_{safe_font.replace(' ', '_')}_{scale}.pes"
     headers = {"Content-Disposition": f"attachment; filename={filename}"}
 
     return StreamingResponse(

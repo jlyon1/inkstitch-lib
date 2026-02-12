@@ -1,0 +1,63 @@
+# Lightweight Dockerfile for InkStitch FastAPI server (no GUI dependencies)
+# Build time: ~3-5 minutes (vs 20+ minutes with wxPython)
+FROM python:3.12-slim
+
+# Install system dependencies for embroidery generation
+RUN apt-get update && apt-get install -y \
+    git \
+    gcc \
+    g++ \
+    pkg-config \
+    libcairo2 \
+    libcairo2-dev \
+    libgeos-dev \
+    libgirepository1.0-dev \
+    gir1.2-glib-2.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy only necessary files first (for better layer caching)
+COPY batch_text_to_pes.py gunicorn_config.py check_dependencies.py ./
+COPY lib ./lib
+COPY fonts ./fonts
+
+# Install Python dependencies in stages to handle build issues
+# Stage 1: Install core dependencies
+RUN pip install --no-cache-dir \
+    gunicorn \
+    'fastapi>=0.100.0' \
+    'uvicorn>=0.20.0' \
+    'lxml>=4.5.0,<6.0.0' \
+    'numpy>=2.0.0'
+
+# Stage 2: Install packages that may need compilation
+RUN pip install --no-cache-dir \
+    pycairo \
+    shapely \
+    trimesh
+
+# Stage 3: Install pure Python packages
+RUN pip install --no-cache-dir \
+    pystitch \
+    colormath2 \
+    fonttools \
+    networkx \
+    diskcache \
+    platformdirs \
+    requests
+
+# Stage 4: Install inkex from git
+RUN pip install --no-cache-dir \
+    'git+https://gitlab.com/inkscape/extensions.git@EXTENSIONS_AT_INKSCAPE_1.4.1'
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV WORKERS=2
+
+# Start with Gunicorn for production
+CMD ["gunicorn", "-c", "gunicorn_config.py", "batch_text_to_pes:app"]
