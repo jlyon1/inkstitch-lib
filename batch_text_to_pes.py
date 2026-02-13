@@ -13,6 +13,8 @@ Can also be imported as a library:
         scale=100
     )
 """
+import io
+import pystitch
 
 import sys
 import os
@@ -218,33 +220,36 @@ def text_to_embroidery(
             def flush(self):
                 self.buffer.flush()
 
-        sys.stdout = StdoutWrapper(output_file)
+        # sys.stdout = StdoutWrapper(output_file)
 
         try:
-            ext.run(cmd_args)
+            ret_vals = ext.effect_new(cmd_args)
+            print("Return values from effect_new:", ret_vals)
+            # print(ret_vals)
+            return ret_vals
         except SystemExit:
-            pass
+            return None
         finally:
-            sys.stdout = original_stdout
+            # sys.stdout = original_stdout
             output_file.close()
 
-        # Extract file from the zip
-        with ZipFile(output_file.name, 'r') as zip_file:
-            output_dir = os.path.dirname(output_path) or '.'
+        # # Extract file from the zip
+        # with ZipFile(output_file.name, 'r') as zip_file:
+        #     output_dir = os.path.dirname(output_path) or '.'
 
-            files = [f for f in zip_file.namelist() if f.endswith(f'.{output_format}')]
-            if not files:
-                raise ValueError(f"No {output_format} file found in output")
+        #     files = [f for f in zip_file.namelist() if f.endswith(f'.{output_format}')]
+        #     if not files:
+        #         raise ValueError(f"No {output_format} file found in output")
 
-            # Extract and rename to final output path
-            zip_file.extract(files[0], output_dir)
-            extracted = os.path.join(output_dir, files[0])
+        #     # Extract and rename to final output path
+        #     zip_file.extract(files[0], output_dir)
+        #     extracted = os.path.join(output_dir, files[0])
 
-            if os.path.exists(output_path):
-                os.remove(output_path)
-            os.rename(extracted, output_path)
+        #     if os.path.exists(output_path):
+        #         os.remove(output_path)
+        #     os.rename(extracted, output_path)
 
-            return output_path
+        #     return output_path
 
     finally:
         # Cleanup
@@ -340,8 +345,7 @@ async def get_or_create_embroidery(text: str, font: str, scale: int, trim: str,
         return cache_file
 
     # Generate new file in cache directory using threadpool (blocking operation)
-    output_path = await run_in_threadpool(
-        text_to_embroidery,
+    output  = text_to_embroidery(
         text=text,
         output_path=cache_file,
         font=font,
@@ -355,7 +359,9 @@ async def get_or_create_embroidery(text: str, font: str, scale: int, trim: str,
         use_command_symbols=use_command_symbols
     )
 
-    return output_path
+    print("op", output)
+
+    return output
 
 @app.get("/batch_text_to_pes")
 async def batch_text_to_pes_endpoint(
@@ -380,7 +386,7 @@ async def batch_text_to_pes_endpoint(
     - Cleans up temporary files in background
     """
     # Get or generate embroidery file (runs in threadpool to avoid blocking)
-    output_file = await get_or_create_embroidery(
+    output_files = await get_or_create_embroidery(
         text=text,
         font=font,
         scale=scale,
@@ -393,22 +399,27 @@ async def batch_text_to_pes_endpoint(
         use_command_symbols=use_command_symbols
     )
 
-    # Read file content (also blocking, so use threadpool)
-    def read_file():
-        with open(output_file, "rb") as f:
-            return f.read()
 
-    file_content = await run_in_threadpool(read_file)
+    # # Read file content (also blocking, so use threadpool)
+    # def read_file():
+    #     with open(output_file, "rb") as f:
+    #         return f.read()
 
-    # Return file with proper headers
-    # Sanitize filename to only ASCII characters for HTTP header compatibility
+    # file_content = await run_in_threadpool(read_file)
+
+    # # Return file with proper headers
+    # # Sanitize filename to only ASCII characters for HTTP header compatibility
     safe_text = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in text[:20])
     safe_font = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in font)
     filename = f"{safe_text.replace(' ', '_')}_{safe_font.replace(' ', '_')}_{scale}.pes"
     headers = {"Content-Disposition": f"attachment; filename={filename}"}
-
+    
+    fbytes = io.BytesIO()
+    for file in output_files:
+        pystitch.write_pes(file[0], fbytes, file[1])
+    fbytes.seek(0)
     return StreamingResponse(
-        iter([file_content]),
+        iter([fbytes.read()]),
         media_type="application/octet-stream",
         headers=headers
     )

@@ -2,6 +2,10 @@
 #
 # Copyright (c) 2025 Authors
 # Licensed under the GNU GPL version 3.0 or later.  See the file LICENSE for details.
+from lib.commands import global_command
+from lib.stitch_plan.stitch import Stitch
+import io
+from inkex.base import InkscapeExtension
 
 import json
 import os
@@ -21,9 +25,9 @@ from ..i18n import _
 # Deferred import to avoid circular dependency: from ..lettering import get_font_by_name
 from ..output import write_embroidery_file
 from ..stitch_plan import stitch_groups_to_stitch_plan
-from ..svg import get_correction_transform
+from ..svg import get_correction_transform, PIXELS_PER_MM
 from ..threads import ThreadCatalog
-from ..utils import DotDict
+from ..utils import DotDict, Point
 from .base import InkstitchExtension
 
 
@@ -51,6 +55,41 @@ class BatchLettering(InkstitchExtension):
         self.arg_parser.add_argument('--file-formats', type=str, default='', dest='formats')
 
     def effect(self):
+        pass
+
+    def effect_new(self, args):
+
+        self.parse_arguments(args)
+        if self.options.input_file is None:
+            print("input file none")
+            self.options.input_file = sys.stdin
+        elif "DOCUMENT_PATH" not in os.environ:
+            os.environ["DOCUMENT_PATH"] = self.options.input_file
+
+
+        self.bin_stdout = None
+        if self.options.output is None:
+            # If no output was specified, attempt to extract a binary
+            # output from stdout, and if that doesn't seem possible,
+            # punt and try whatever stream stdout is:
+
+            output = sys.stdout
+            if "b" not in getattr(output, "mode", "") and not isinstance(
+                output, (io.RawIOBase, io.BufferedIOBase)
+            ):
+                if hasattr(output, "buffer"):
+                    output = output.buffer  # type: ignore
+                elif hasattr(output, "fileno"):
+                    self.bin_stdout = os.fdopen(
+                        output.fileno(), "wb", closefd=False
+                    )
+                    output = self.bin_stdout
+
+            self.options.output = output
+
+        # Load the SVG document - this sets self.svg and self.document
+        self.load_raw()
+
         separator = self.options.separator
         if not separator:
             separator = '\n'
@@ -87,10 +126,10 @@ class BatchLettering(InkstitchExtension):
         self.setup_color_sort()
         self.setup_scale()
 
-        self.generate_output_files(texts, file_formats)
+        # generate_output_files writes directly to stdout, no need for save_raw
+        ret_vals = self.generate_output_files(texts, file_formats)
+        return ret_vals
 
-        # don't let inkex output the SVG!
-        sys.exit(0)
 
     def setup_trim(self):
         self.trim = 0
@@ -129,43 +168,29 @@ class BatchLettering(InkstitchExtension):
             self.scale = self.font.max_scale
 
     def generate_output_files(self, texts, file_formats):
-        self.metadata = self.get_inkstitch_metadata()
-        self.collapse_len = self.metadata['collapse_len_mm']
-        self.min_stitch_len = self.metadata['min_stitch_len_mm']
+        with open("/tmp/debug.txt", "a+") as debug_file:
+            self.metadata = self.get_inkstitch_metadata()
+            self.collapse_len = self.metadata['collapse_len_mm']
+            self.min_stitch_len = self.metadata['min_stitch_len_mm']
 
-        # The user can specify a path which can be use for the text along path method.
-        # The path should be labeled as "batch lettering"
-        text_positioning_path = self.svg.findone(".//*[@inkscape:label='batch lettering']")
+            # The user can specify a path which can be use for the text along path method.
+            # The path should be labeled as "batch lettering"
+            text_positioning_path = self.svg.findone(".//*[@inkscape:label='batch lettering']")
 
-        path = tempfile.mkdtemp()
-        files = []
-        for i, text in enumerate(texts):
-            if not text:
-                continue
-            stitch_plan, lettering_group = self.generate_stitch_plan(text, text_positioning_path)
-            for file_format in file_formats:
-                files.append(self.generate_output_file(file_format, path, text, stitch_plan, i))
+            path = tempfile.mkdtemp()
+            ret_vals = []
+            for i, text in enumerate(texts):
+                if not text:
+                    continue
+                stitch_plan, lettering_group = self.generate_stitch_plan(text, text_positioning_path)
+                embroidery_file,settings = self.stitch_to_pes(stitch_plan, self.svg, settings={})
+                ret_vals.append((embroidery_file, settings))
+                # print(stitch_plan, file=debug_file)
+                # for file_format in file_formats:
+                #     files.append(self.generate_output_file(file_format, path, text, stitch_plan, i))
 
-            self.reset_document(lettering_group, text_positioning_path)
-
-        temp_file = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-
-        # in windows, failure to close here will keep the file locked
-        temp_file.close()
-
-        with ZipFile(temp_file.name, "w") as zip_file:
-            for output in files:
-                zip_file.write(output, os.path.basename(output))
-
-        # inkscape will read the file contents from stdout and copy
-        # to the destination file that the user chose
-        with open(temp_file.name, 'rb') as output_file:
-            sys.stdout.buffer.write(output_file.read())
-
-        os.remove(temp_file.name)
-        for output in files:
-            os.remove(output)
-        os.rmdir(path)
+                # self.reset_document(lettering_group, text_positioning_path)
+        return ret_vals
 
     def reset_document(self, lettering_group, text_positioning_path):
         # reset document for the next iteration
@@ -174,6 +199,70 @@ class BatchLettering(InkstitchExtension):
         if text_positioning_path is not None:
             parent.insert(index, text_positioning_path)
         lettering_group.delete()
+
+    def get_origin(self,svg, bounding_box):
+        (minx, miny, maxx, maxy) = bounding_box
+        # origin_command = global_command(svg, "origin")
+
+        # if origin_command:
+        #     return origin_command.point
+        # else:
+        bounding_box_center = [(maxx+minx)/2, (maxy+miny)/2]
+        default = Point(*bounding_box_center)
+        return default
+
+    def jump_to_stop_point(self, pattern, svg):
+        # TODO: figure out how to remove stop_position global
+        stop_position = global_command(svg, "stop_position")
+        if stop_position:
+            pattern.add_stitch_absolute(pystitch.JUMP, stop_position.point.x, stop_position.point.y)
+
+    def get_command(self, stitch):
+        if stitch.jump:
+            return pystitch.JUMP
+        elif stitch.trim:
+            return pystitch.TRIM
+        elif stitch.color_change:
+            return pystitch.COLOR_CHANGE
+        elif stitch.stop:
+            return pystitch.STOP
+        else:
+            return pystitch.NEEDLE_AT
+    def stitch_to_pes(self, stitch_plan, svg, settings={}):
+        scale = 10 / PIXELS_PER_MM
+        origin = self.get_origin(svg, stitch_plan.bounding_box)
+
+        pattern = pystitch.EmbPattern()
+
+        stitch = Stitch(0, 0)
+
+        for color_block in stitch_plan:
+            pattern.add_thread(color_block.color.pystitch_thread)
+
+            for stitch in color_block:
+                if stitch.stop:
+                    self.jump_to_stop_point(pattern, svg)
+                command = self.get_command(stitch)
+                pattern.add_stitch_absolute(command, stitch.x, stitch.y)
+        
+        pattern.add_stitch_absolute(pystitch.END, stitch.x, stitch.y)
+        settings.update({
+            # correct for the origin
+            "translate": -origin,
+
+            # convert from pixels to millimeters
+            # also multiply by 10 to get tenths of a millimeter as required by pystitch
+            "scale": (scale, scale),
+
+            # This forces a jump at the start of the design and after each trim,
+            # even if we're close enough not to need one.
+            "full_jump": True,
+
+            # defaults to False in pystitch (see https://github.com/EmbroidePy/pyembroidery/issues/188)
+            "trims": True,
+        })
+
+        return pattern, settings
 
     def generate_output_file(self, file_format, path, text, stitch_plan, iteration):
         allowed_characters = string.ascii_letters + string.digits
@@ -243,7 +332,8 @@ class BatchLettering(InkstitchExtension):
         stitch_groups = self.elements_to_stitch_groups(self.elements)
         stitch_plan = stitch_groups_to_stitch_plan(stitch_groups, collapse_len=self.collapse_len, min_stitch_len=self.min_stitch_len)
         ThreadCatalog().match_and_apply_palette(stitch_plan, self.get_inkstitch_metadata()['thread-palette'])
-
+        with open("/tmp/mysvg.svg", "w") as f:
+            f.write(etree.tostring(self.svg).decode('utf-8'))
         return stitch_plan, lettering_group
 
 
