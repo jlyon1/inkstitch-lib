@@ -1,7 +1,7 @@
 # Use Ubuntu 24.04 as base
 FROM ubuntu:24.04
 
-# Install Python, uv, and system dependencies
+# Install Python, uv, and system dependencies (wx dependencies removed)
 RUN apt-get update && apt-get install -y \
     python3.12 \
     python3.12-dev \
@@ -15,17 +15,6 @@ RUN apt-get update && apt-get install -y \
     libcairo2-dev \
     python3-gi \
     libglib2.0-dev \
-    libgtk-3-dev \
-    libjpeg-dev \
-    libtiff-dev \
-    libsdl2-dev \
-    libpng-dev \
-    libwebkitgtk-6.0-dev \
-    libnotify-dev \
-    libsm-dev \
-    libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
-    freeglut3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv

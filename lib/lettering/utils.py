@@ -9,6 +9,11 @@ import os
 from ..lettering import Font
 from ..utils import get_bundled_dir, get_user_dir
 
+# Module-level cache for Font objects to avoid re-loading from disk
+# Key: absolute path to font directory
+# Value: Font object
+_FONT_CACHE = {}
+
 
 def get_font_list(show_font_path_warning=True):
     font_paths = get_font_paths()
@@ -69,7 +74,25 @@ def get_font_by_name(font_name, show_font_path_warning=True):
     return None
 
 
+def clear_font_cache():
+    """Clear the font cache. Useful for testing or when fonts are updated."""
+    global _FONT_CACHE
+    _FONT_CACHE.clear()
+
+
 def _get_font_from_path(font_path, font_dir, show_font_path_warning=True):
     if not os.path.isdir(os.path.join(font_path, font_dir)) or font_dir.startswith('.'):
         return
-    return Font(os.path.join(font_path, font_dir), show_font_path_warning)
+
+    # Use absolute path as cache key
+    full_path = os.path.abspath(os.path.join(font_path, font_dir))
+
+    # Check cache first
+    if full_path in _FONT_CACHE:
+        # print("cache hit")
+        return _FONT_CACHE[full_path]
+
+    # Load font from disk and cache it
+    font = Font(full_path, show_font_path_warning)
+    _FONT_CACHE[full_path] = font
+    return font

@@ -53,7 +53,7 @@ docker-compose.yml
 .dockerignore
 
 # UV/uv lock files (we install manually in Dockerfile.api)
-uv.lock
+# uv.lock
 
 # macOS
 .DS_Store
