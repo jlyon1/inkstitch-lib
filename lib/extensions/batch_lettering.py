@@ -2,29 +2,40 @@
 #
 # Copyright (c) 2025 Authors
 # Licensed under the GNU GPL version 3.0 or later.  See the file LICENSE for details.
+import argparse
 import json
 import os
 import sys
 
-from inkex import Boolean, Group, errormsg
+from inkex import Boolean, Group
 from lxml import etree
 import pystitch
 
 from lib.commands import global_command
 from lib.stitch_plan.stitch import Stitch
+from ..elements import nodes_to_elements, iterate_nodes
 from ..extensions.lettering_along_path import TextAlongPath
 from ..i18n import _
 # Deferred import to avoid circular dependency: from ..lettering import get_font_by_name
+from ..metadata import InkStitchMetadata
 from ..stitch_plan import stitch_groups_to_stitch_plan
 from ..svg import get_correction_transform, PIXELS_PER_MM
 from ..threads import ThreadCatalog
 from ..utils import DotDict, Point
-from .base import InkstitchExtension
 
 
-class BatchLettering(InkstitchExtension):
-    def __init__(self, *args, **kwargs):
-        InkstitchExtension.__init__(self)
+def errormsg(message):
+    print(message, file=sys.stderr)
+
+class BatchLettering():
+    def __init__(self, svg_element, *args, **kwargs):
+        """
+        Initialize BatchLettering with an SVG element.
+
+        Args:
+            svg_element: An lxml Element representing the SVG root
+        """
+        self.arg_parser = argparse.ArgumentParser(description=_("Generate embroidery patterns for multiple texts at once."))
 
         self.arg_parser.add_argument('--notebook')
 
@@ -45,20 +56,49 @@ class BatchLettering(InkstitchExtension):
 
         self.arg_parser.add_argument('--file-formats', type=str, default='', dest='formats')
 
+        self.elements = []
+
+        # The svg_element should already be an inkex element (parsed with SVG_PARSER)
+        # which has the .metadata property needed by InkStitchMetadata
+        self.svg = svg_element
+        self.document = etree.ElementTree(svg_element)
+
     def effect(self):
         pass
+
+    def parse_arguments(self, args):
+        self.options = self.arg_parser.parse_args(args)
+
+    def get_elements(self):
+        """Convert SVG nodes to inkstitch elements."""
+        # Iterate all nodes in the document (no selection)
+        nodes = iterate_nodes(self.document.getroot(), selection=None, troubleshoot=False)
+        self.elements = nodes_to_elements(nodes)
+        return bool(self.elements)
+
+    def elements_to_stitch_groups(self, elements):
+        """Convert inkstitch elements to stitch groups."""
+        next_elements = [None]
+        if len(elements) > 1:
+            next_elements = elements[1:] + next_elements
+        stitch_groups = []
+        for element, next_element in zip(elements, next_elements):
+            if stitch_groups:
+                last_stitch_group = stitch_groups[-1]
+            else:
+                last_stitch_group = None
+
+            stitch_groups.extend(element.embroider(last_stitch_group, next_element))
+
+        return stitch_groups
+
+    def get_inkstitch_metadata(self):
+        """Get inkstitch metadata from the SVG."""
+        return InkStitchMetadata(self.svg)
 
     def effect_new(self, args):
         """Run the effect and return embroidery patterns instead of writing to stdout."""
         self.parse_arguments(args)
-
-        if self.options.input_file is None:
-            self.options.input_file = sys.stdin
-        elif "DOCUMENT_PATH" not in os.environ:
-            os.environ["DOCUMENT_PATH"] = self.options.input_file
-
-        # Load the SVG document - this sets self.svg and self.document
-        self.load_raw()
 
         separator = self.options.separator
         if not separator:
@@ -267,7 +307,3 @@ class BatchLettering(InkstitchExtension):
         stitch_plan = stitch_groups_to_stitch_plan(stitch_groups, collapse_len=self.collapse_len, min_stitch_len=self.min_stitch_len)
         ThreadCatalog().match_and_apply_palette(stitch_plan, self.get_inkstitch_metadata()['thread-palette'])
         return stitch_plan, lettering_group
-
-
-if __name__ == '__main__':
-    BatchLettering().run()

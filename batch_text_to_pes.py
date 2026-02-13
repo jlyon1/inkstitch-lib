@@ -69,48 +69,29 @@ async def list_fonts():
     return JSONResponse(content=get_cached_font_list())
 
 from lxml import etree
+from inkex.elements._parser import SVG_PARSER
 from lib.extensions.batch_lettering import BatchLettering
 
 
 def create_minimal_svg():
-    """Create a minimal SVG document for the extension."""
-    svg = etree.Element(
-        "{http://www.w3.org/2000/svg}svg",
-        nsmap={
-            None: "http://www.w3.org/2000/svg",
-            "inkscape": "http://www.inkscape.org/namespaces/inkscape",
-            "inkstitch": "http://inkstitch.org/namespace",
-        },
-        attrib={
-            "width": "200mm",
-            "height": "200mm",
-            "viewBox": "-100 -100 400 400",
-        }
-    )
+    """Create a minimal SVG document for the extension using inkex parser."""
+    svg_string = '''<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:inkstitch="http://inkstitch.org/namespace"
+     width="200mm" height="200mm" viewBox="-100 -100 400 400">
+  <defs/>
+  <metadata>
+    <inkstitch:inkstitch-metadata>
+      <inkstitch:inkstitch-version>3.0</inkstitch:inkstitch-version>
+      <inkstitch:collapse_len_mm>3.0</inkstitch:collapse_len_mm>
+      <inkstitch:min_stitch_len_mm>0.2</inkstitch:min_stitch_len_mm>
+      <inkstitch:thread-palette></inkstitch:thread-palette>
+    </inkstitch:inkstitch-metadata>
+  </metadata>
+</svg>'''
 
-    # Add required metadata
-    defs = etree.SubElement(svg, "{http://www.w3.org/2000/svg}defs")
-    metadata = etree.SubElement(svg, "{http://www.w3.org/2000/svg}metadata")
-    inkstitch_metadata = etree.SubElement(
-        metadata,
-        "{http://inkstitch.org/namespace}inkstitch-metadata"
-    )
-
-    # Add version to prevent popup
-    version_elem = etree.SubElement(inkstitch_metadata, "{http://inkstitch.org/namespace}inkstitch-version")
-    version_elem.text = "3.0"
-
-    # Add default settings
-    settings = {
-        'collapse_len_mm': '3.0',
-        'min_stitch_len_mm': '0.2',
-        'thread-palette': ''
-    }
-    for key, value in settings.items():
-        elem = etree.SubElement(inkstitch_metadata, f"{{http://inkstitch.org/namespace}}{key}")
-        elem.text = value
-
-    return svg
+    # Parse using inkex's SVG_PARSER which provides proper inkex element classes
+    return etree.fromstring(svg_string.encode('utf-8'), parser=SVG_PARSER)
 
 
 def text_to_embroidery(
@@ -175,42 +156,32 @@ def text_to_embroidery(
         output_format = 'pes'
         output_path += '.pes'
 
-    # Create temporary SVG file
+    # Create minimal SVG element
     svg = create_minimal_svg()
-    svg_file = tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False, encoding='utf-8')
-    svg_file.write(etree.tostring(svg, encoding='unicode'))
-    svg_file.close()
+
+    # Create BatchLettering instance with the SVG element
+    ext = BatchLettering(svg)
+
+    # Set up arguments
+    cmd_args = [
+        f'--text={text}',
+        f'--font={font}',
+        f'--scale={scale}',
+        f'--file-formats={output_format}',
+        f'--trim={trim}',
+        f'--color-sort={color_sort}',
+        f'--text-align={text_align}',
+        f'--letter_spacing={letter_spacing}',
+        f'--word_spacing={word_spacing}',
+        f'--line_height={line_height}',
+    ]
+    if use_command_symbols:
+        cmd_args.append('--use-command-symbols=true')
 
     try:
-        # Create BatchLettering instance
-        ext = BatchLettering()
-
-        # Set up arguments
-        cmd_args = [
-            svg_file.name,
-            f'--text={text}',
-            f'--font={font}',
-            f'--scale={scale}',
-            f'--file-formats={output_format}',
-            f'--trim={trim}',
-            f'--color-sort={color_sort}',
-            f'--text-align={text_align}',
-            f'--letter_spacing={letter_spacing}',
-            f'--word_spacing={word_spacing}',
-            f'--line_height={line_height}',
-        ]
-        if use_command_symbols:
-            cmd_args.append('--use-command-symbols=true')
-
-        try:
-            return ext.effect_new(cmd_args)
-        except SystemExit:
-            return None
-
-    finally:
-        # Cleanup temporary SVG file
-        if os.path.exists(svg_file.name):
-            os.remove(svg_file.name)
+        return ext.effect_new(cmd_args)
+    except SystemExit:
+        return None
 
 
 def main():
