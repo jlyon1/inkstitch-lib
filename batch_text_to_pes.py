@@ -15,18 +15,14 @@ Can also be imported as a library:
 """
 import io
 import pystitch
-
 import sys
 import os
 import tempfile
 import hashlib
 from functools import lru_cache
-from zipfile import ZipFile
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, StreamingResponse
-from fastapi import BackgroundTasks, Depends, FastAPI, Query
-from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, Query
 from fastapi.middleware.gzip import GZipMiddleware
-import uuid
 
 app = FastAPI(dependencies=[])
 
@@ -206,57 +202,15 @@ def text_to_embroidery(
         if use_command_symbols:
             cmd_args.append('--use-command-symbols=true')
 
-        # Redirect stdout to capture zip output
-        output_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.zip', delete=False)
-        original_stdout = sys.stdout
-
-        class StdoutWrapper:
-            def __init__(self, file):
-                self.buffer = file
-            def write(self, data):
-                if isinstance(data, str):
-                    data = data.encode('utf-8')
-                self.buffer.write(data)
-            def flush(self):
-                self.buffer.flush()
-
-        # sys.stdout = StdoutWrapper(output_file)
-
         try:
-            ret_vals = ext.effect_new(cmd_args)
-            print("Return values from effect_new:", ret_vals)
-            # print(ret_vals)
-            return ret_vals
+            return ext.effect_new(cmd_args)
         except SystemExit:
             return None
-        finally:
-            # sys.stdout = original_stdout
-            output_file.close()
-
-        # # Extract file from the zip
-        # with ZipFile(output_file.name, 'r') as zip_file:
-        #     output_dir = os.path.dirname(output_path) or '.'
-
-        #     files = [f for f in zip_file.namelist() if f.endswith(f'.{output_format}')]
-        #     if not files:
-        #         raise ValueError(f"No {output_format} file found in output")
-
-        #     # Extract and rename to final output path
-        #     zip_file.extract(files[0], output_dir)
-        #     extracted = os.path.join(output_dir, files[0])
-
-        #     if os.path.exists(output_path):
-        #         os.remove(output_path)
-        #     os.rename(extracted, output_path)
-
-        #     return output_path
 
     finally:
-        # Cleanup
+        # Cleanup temporary SVG file
         if os.path.exists(svg_file.name):
             os.remove(svg_file.name)
-        if 'output_file' in locals() and os.path.exists(output_file.name):
-            os.remove(output_file.name)
 
 
 def main():
@@ -344,8 +298,8 @@ async def get_or_create_embroidery(text: str, font: str, scale: int, trim: str,
     if os.path.exists(cache_file):
         return cache_file
 
-    # Generate new file in cache directory using threadpool (blocking operation)
-    output  = text_to_embroidery(
+    # Generate new embroidery patterns
+    return text_to_embroidery(
         text=text,
         output_path=cache_file,
         font=font,
@@ -358,10 +312,6 @@ async def get_or_create_embroidery(text: str, font: str, scale: int, trim: str,
         line_height=line_height,
         use_command_symbols=use_command_symbols
     )
-
-    print("op", output)
-
-    return output
 
 @app.get("/batch_text_to_pes")
 async def batch_text_to_pes_endpoint(
@@ -385,7 +335,7 @@ async def batch_text_to_pes_endpoint(
     - Caches rendered outputs to avoid regeneration
     - Cleans up temporary files in background
     """
-    # Get or generate embroidery file (runs in threadpool to avoid blocking)
+    # Get or generate embroidery patterns
     output_files = await get_or_create_embroidery(
         text=text,
         font=font,
@@ -399,25 +349,18 @@ async def batch_text_to_pes_endpoint(
         use_command_symbols=use_command_symbols
     )
 
-
-    # # Read file content (also blocking, so use threadpool)
-    # def read_file():
-    #     with open(output_file, "rb") as f:
-    #         return f.read()
-
-    # file_content = await run_in_threadpool(read_file)
-
-    # # Return file with proper headers
-    # # Sanitize filename to only ASCII characters for HTTP header compatibility
+    # Generate filename for download
     safe_text = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in text[:20])
     safe_font = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in font)
     filename = f"{safe_text.replace(' ', '_')}_{safe_font.replace(' ', '_')}_{scale}.pes"
     headers = {"Content-Disposition": f"attachment; filename={filename}"}
-    
+
+    # Write embroidery pattern to bytes buffer
     fbytes = io.BytesIO()
-    for file in output_files:
-        pystitch.write_pes(file[0], fbytes, file[1])
+    for pattern, settings in output_files:
+        pystitch.write_pes(pattern, fbytes, settings)
     fbytes.seek(0)
+
     return StreamingResponse(
         iter([fbytes.read()]),
         media_type="application/octet-stream",
