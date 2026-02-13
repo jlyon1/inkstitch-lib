@@ -3,8 +3,8 @@ from copy import copy
 from ..mixins.path import PathMixin, PathPropertiesMixin
 from ..mixins.randomization import RandomizationPropertiesMixin, RandomizationMixin
 from ..stitch_layer import StitchLayer
-from ..stitch_layer_editor import Category, Properties, Property
-from ..stitch_layer_editor import StitchLayerEditor
+# from ..stitch_layer_editor import Category, Properties, Property
+# from ..stitch_layer_editor import StitchLayerEditor
 from ....i18n import _
 from ....stitch_plan import StitchGroup
 from ....stitches.running_stitch import running_stitch
@@ -58,7 +58,7 @@ class RunningStitchLayerEditor(StitchLayerEditor, RandomizationPropertiesMixin, 
 
 
 class RunningStitchLayer(StitchLayer, RandomizationMixin, PathMixin):
-    editor_class = RunningStitchLayerEditor
+    editor_class = None
 
     @classmethod
     @property

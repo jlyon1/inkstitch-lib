@@ -1,4 +1,4 @@
-import wx
+# import wx
 
 from . import stitch_layers
 from ..debug.debug import debug

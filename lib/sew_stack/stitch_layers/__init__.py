@@ -1,6 +1,6 @@
-from .running_stitch import RunningStitchLayer
+# from .running_stitch import RunningStitchLayer
 
-all = [RunningStitchLayer]
+all = []
 by_id = {}
 
 for layer_class in all:

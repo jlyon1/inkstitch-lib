@@ -7,7 +7,7 @@ from inkex import errormsg
 
 from .commands import add_commands, ensure_symbol
 from .elements import EmbroideryElement, Stroke
-from .gui.request_update_svg_version import RequestUpdate
+# from .gui.request_update_svg_version import RequestUpdate
 from .i18n import _
 from .metadata import InkStitchMetadata
 from .svg import PIXELS_PER_MM
@@ -65,9 +65,10 @@ def automatic_version_update(document, file_version, INKSTITCH_SVG_VERSION, warn
     # make sure the user really wants to update
     if file_version == 0:
         if warn_unversioned:
-            do_update = RequestUpdate()
-            if do_update.cancelled is True:
-                return
+            return 
+            # do_update = RequestUpdate()
+            # if do_update.cancelled is True:
+                # return
     # well then, let's update legeacy params
     # oddly we have to convert this into a list, otherwise a bunch of elements is missing
     for node in list(document.iterdescendants(EMBROIDERABLE_TAGS)):
