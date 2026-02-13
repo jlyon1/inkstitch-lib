@@ -19,6 +19,7 @@ import sys
 import os
 import tempfile
 import hashlib
+import time
 from functools import lru_cache
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi import BackgroundTasks, FastAPI, Query
@@ -320,9 +321,13 @@ async def batch_text_to_pes_endpoint(
         use_command_symbols=use_command_symbols
     )
 
-    # Generate filename for download
-    safe_text = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in text[:20])
-    safe_font = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in font)
+    # Generate filename for download (ASCII only for HTTP header compatibility)
+    def safe_ascii(s):
+        """Keep only ASCII alphanumeric, space, dash, underscore"""
+        return "".join(c if c.isascii() and (c.isalnum() or c in (' ', '-', '_')) else '_' for c in s)
+
+    safe_text = safe_ascii(text[:20])
+    safe_font = safe_ascii(font)
     filename = f"{safe_text.replace(' ', '_')}_{safe_font.replace(' ', '_')}_{scale}.pes"
     headers = {"Content-Disposition": f"attachment; filename={filename}"}
 
