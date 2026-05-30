@@ -6,7 +6,8 @@
       "Bash(curl:*)",
       "Bash(docker stop:*)",
       "Bash(docker rm:*)",
-      "Bash(docker buildx build:*)"
+      "Bash(docker buildx build:*)",
+      "Bash(grep:*)"
     ]
   }
 }

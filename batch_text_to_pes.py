@@ -24,6 +24,50 @@ from functools import lru_cache
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi import BackgroundTasks, FastAPI, Query
 from fastapi.middleware.gzip import GZipMiddleware
+from svgpathtools import parse_path
+from lxml import etree as ET
+
+
+def normalize_to_height(svg_root, target_height_mm):
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+
+    min_x = float("inf")
+    min_y = float("inf")
+    max_x = float("-inf")
+    max_y = float("-inf")
+
+    for path_el in svg_root.findall(".//svg:path", ns):
+        d = path_el.get("d")
+        if not d:
+            continue
+
+        path = parse_path(d)
+        xmin, xmax, ymin, ymax = path.bbox()
+
+        min_x = min(min_x, xmin)
+        min_y = min(min_y, ymin)
+        max_x = max(max_x, xmax)
+        max_y = max(max_y, ymax)
+
+    if min_x == float("inf"):
+        return
+
+    height = max_y - min_y
+
+    if height == 0:
+        return
+
+    scale_factor = target_height_mm / height
+
+    cx = (min_x + max_x) / 2
+    cy = (min_y + max_y) / 2
+
+    existing = svg_root.get("transform", "")
+
+    svg_root.set(
+        "transform",
+        f"{existing} translate({-cx}, {-cy}) scale({scale_factor})"
+    )
 
 app = FastAPI(dependencies=[])
 
@@ -41,6 +85,8 @@ from lib.lettering.utils import get_font_list
 # Cache directory for rendered embroidery files
 CACHE_DIR = os.path.join(tempfile.gettempdir(), 'inkstitch_cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+TARGET_MM = 0.45 * 25.4
 
 # Cached font list - load once and reuse
 @lru_cache(maxsize=1)
@@ -180,13 +226,21 @@ def text_to_embroidery(
         cmd_args.append('--use-command-symbols=true')
 
     try:
-        return ext.effect_new(cmd_args)
+        ret = ext.effect_new(cmd_args)
+
+        normalize_to_height(svg, target_height_mm=10)
+
+        tree = etree.ElementTree(svg)
+        tree.write(output_path, encoding='utf-8', xml_declaration=True, pretty_print=True)
+        return ret
     except SystemExit:
         return None
 
 
 def main():
     import argparse
+
+    # print([f.name for f in get_font_list(show_font_path_warning=False)])
 
     parser = argparse.ArgumentParser(
         description='Convert text to embroidery files using Ink/Stitch fonts',
@@ -240,6 +294,8 @@ Examples:
         print(f"Error: {e}")
         return False
 
+if __name__ == "__main__":
+    main()
 
 def cleanup_file(filepath: str):
     """Background task to cleanup temporary files"""
