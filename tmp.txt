@@ -1,0 +1,8 @@
+while read -l name
+                set filename (string replace -a " " "_" $name)
+                uv run batch_text_to_pes.py \
+                            --font "Lobster AGS" \
+                            --scale 45 \
+                            "$name" \
+                            "$HOME/output2/$filename.svg"
+            end < /tmp/names.txt
