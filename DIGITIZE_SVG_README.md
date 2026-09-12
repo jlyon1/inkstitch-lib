@@ -255,3 +255,56 @@ the actual written file's stitch count, threadlist, and color-change
 positions directly. Same lesson as the unit-conversion bug above: verify
 from the stitch file's actual structure, not from how a preview happens
 to look.
+
+## check_design.py: Ink/Stitch's own troubleshooting, as data
+
+Ink/Stitch ships a `Troubleshoot` extension that finds real problems with
+a design -- shapes that won't stitch at all, shapes that will stitch but
+probably shouldn't (too small, disconnected pieces with no defined stitch
+order, ...), objects of a type Ink/Stitch can't embroider. Normally it
+draws pointer markers and text into the SVG for a human to read in
+Inkscape. `check_design.py` calls the exact same underlying check --
+every element's `validation_errors()`/`validation_warnings()` -- and
+returns it as JSON instead: no new checks invented, just the existing
+ones exposed as data an agent can read directly.
+
+```bash
+uv run check_design.py design.svg
+```
+
+```json
+{
+  "clean": false,
+  "problems": [
+    {
+      "element_index": 0,
+      "severity": "warning",
+      "name": "Unconnected",
+      "description": "Fill: This object is made up of unconnected shapes...",
+      "position_mm": [80.0, 53.33],
+      "steps_to_solve": ["* Extensions > Ink/Stitch > Fill Tools > Break Apart Fill Objects"]
+    }
+  ]
+}
+```
+
+Verified against three real cases:
+- The knockdown-corrected Spain flag genuinely triggers a real warning --
+  the red shape, split into two disconnected strips by `digitize_svg.py`'s
+  own knockdown step, trips Ink/Stitch's own "Unconnected" check (it
+  doesn't know what order to stitch two disjoint pieces in). This is a
+  real, true finding about output this same toolkit produces, not a
+  contrived example.
+- A plain single-rect design correctly comes back clean (no false
+  positives).
+- A deliberately tiny (1mm x 1mm) shape correctly triggers "Small Fill"
+  with the right description and position -- confirming the tool catches
+  more than one category of problem, not just the one the flag happened
+  to surface.
+
+`element_index` matches `digitize_svg.py`'s own `measure_shape()`/
+`--measure-only` indices when run against the same *prepared* (post-
+knockdown) SVG -- `prepare_svg()`'s returned path, not the original raw
+input -- so a problem can be cross-referenced against that shape's
+geometry directly. Knockdown can drop or split shapes, so indices against
+the raw input won't line up.
