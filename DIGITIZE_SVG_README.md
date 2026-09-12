@@ -205,3 +205,48 @@ the aggregate-only version would have hidden it.
 - This is a standalone script in this repo, not yet wired into
   embroider-web (the actual product) or exposed as a callable tool for a
   real agent loop.
+
+## combine_flag_and_text.py: [flag] + country name
+
+Merges a `digitize_svg.py` flag with `batch_text_to_pes.py`'s text
+pipeline (the same lettering engine embroider-web's `/create` page already
+runs in production) into one design, in one of three layouts:
+
+```bash
+uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout right   # default
+uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout left
+uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout under
+```
+
+The two pieces are generated fully independently and merged at the
+**stitch-plan level** with `pyembroidery` (not inside a single Ink/Stitch
+SVG document) -- each half stays exactly as already verified on its own,
+and the merge itself is just geometry (bounding boxes, an x/y offset per
+piece, perpendicular-axis centering).
+
+Verified on the real Spain flag + "Spain" in three fonts (Barstitch
+regular, Roman AGS, Venezia) and all three layouts, each uploaded to
+embroider-web's live stitch replay for visual confirmation.
+
+### Two real stitch-plan bugs caught here, both from copying a source
+### pattern's raw stitch list verbatim
+
+- **A source pattern's own trailing `END` command**, copied mid-sequence,
+  made writers treat the whole combined pattern as over right there --
+  silently dropping everything appended after it. The tell: reread stitch
+  count came back the same (~1545) regardless of which font or text was
+  combined, which meant something was being truncated at a fixed point,
+  not legitimately differing per input the way real content would.
+- **A block's own leading/trailing `COLOR_CHANGE`**, copied alongside an
+  explicit `combined.color_change()` call already marking that same
+  transition, created a duplicate adjacent color-change -- a zero-length
+  "dead" color segment that shifted every later thread index by one (the
+  flag's real yellow silently inherited an unrelated black thread slot,
+  rendering as black instead of yellow).
+
+Neither was visible from a quick glance at a rendered preview -- both
+looked like plausible, if wrong, output. Both were caught by inspecting
+the actual written file's stitch count, threadlist, and color-change
+positions directly. Same lesson as the unit-conversion bug above: verify
+from the stitch file's actual structure, not from how a preview happens
+to look.
