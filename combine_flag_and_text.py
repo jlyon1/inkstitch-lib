@@ -172,7 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("name")
     parser.add_argument("font")
     parser.add_argument("output")
-    parser.add_argument("--layout", choices=LAYOUTS, default="right")
+    parser.add_argument("--layout", "--position", dest="layout", choices=LAYOUTS, default="right")
     parser.add_argument("--flag-height-mm", type=float, default=20)
     parser.add_argument("--gap-mm", type=float, default=5)
     parser.add_argument("--text-scale", type=float, default=60)
