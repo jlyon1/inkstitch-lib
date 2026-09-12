@@ -206,16 +206,18 @@ the aggregate-only version would have hidden it.
   embroider-web (the actual product) or exposed as a callable tool for a
   real agent loop.
 
-## combine_flag_and_text.py: [flag] + country name
+## combine_design_and_text.py: [any design] + text
 
-Merges a `digitize_svg.py` flag with `batch_text_to_pes.py`'s text
-pipeline (the same lettering engine embroider-web's `/create` page already
-runs in production) into one design, in one of three layouts:
+Merges any `digitize_svg.py`-compatible design -- not specific to flags or
+countries, that's just what it happened to be built and verified against
+first -- with `batch_text_to_pes.py`'s text pipeline (the same lettering
+engine embroider-web's `/create` page already runs in production) into one
+design, in one of three positions:
 
 ```bash
-uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout right   # default
-uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout left
-uv run combine_flag_and_text.py flag.svg "Spain" "Roman AGS" output.pes --layout under
+uv run combine_design_and_text.py design.svg "Spain" "Roman AGS" output.pes --position right   # default
+uv run combine_design_and_text.py design.svg "Spain" "Roman AGS" output.pes --position left
+uv run combine_design_and_text.py design.svg "Spain" "Roman AGS" output.pes --position under
 ```
 
 The two pieces are generated fully independently and merged at the
@@ -225,8 +227,11 @@ and the merge itself is just geometry (bounding boxes, an x/y offset per
 piece, perpendicular-axis centering).
 
 Verified on the real Spain flag + "Spain" in three fonts (Barstitch
-regular, Roman AGS, Venezia) and all three layouts, each uploaded to
-embroider-web's live stitch replay for visual confirmation.
+regular, Roman AGS, Venezia) and all three positions, each uploaded to
+embroider-web's live stitch replay for visual confirmation. Verified
+again with an unrelated design (a traced star badge, nothing flag-like)
+plus arbitrary text ("Team Awesome") to confirm the design side is
+genuinely general, not flag-specific in disguise.
 
 ### Two real stitch-plan bugs caught here, both from copying a source
 ### pattern's raw stitch list verbatim
