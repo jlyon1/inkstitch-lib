@@ -308,3 +308,57 @@ knockdown) SVG -- `prepare_svg()`'s returned path, not the original raw
 input -- so a problem can be cross-referenced against that shape's
 geometry directly. Knockdown can drop or split shapes, so indices against
 the raw input won't line up.
+
+## normalize_svg.py: real-world SVG authoring shortcuts
+
+Real SVGs (flags, logos, icons exported from Wikipedia, Illustrator, etc.)
+routinely use shortcuts a plain fill-based pipeline doesn't handle:
+repeating one shape via `<use>` instead of writing it out N times, and
+drawing a set of bands as one stroked line instead of N filled rectangles.
+`normalize_svg.py` resolves both into plain filled shapes first, so the
+rest of the toolkit needs no changes.
+
+```bash
+uv run normalize_svg.py input.svg output.svg --width-mm 80
+```
+
+- **`<use>` resolution is recursive.** A `<use>` can reference a `<g>`
+  that itself contains further `<use>` elements -- proven against the
+  real [US flag SVG](https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg),
+  whose 50-star canton is one star `<path>` doubled through five nested
+  levels (1 -> 4 -> 5 -> 9 -> 18 -> 50 stars) rather than 50 concrete
+  paths. Each clone is rebuilt as an absolute, already-transformed path
+  using `EmbroideryElement`'s own geometry/color resolution (`.paths`,
+  `.fill_color`) -- not a raw `copy.deepcopy` of the node, which would
+  lose both the accumulated translate offset and any color inherited from
+  a distant ancestor `<g fill="...">` rather than set on the shape itself.
+- **Stroked-only paths become one filled shape per line segment, not one
+  unioned shape.** The same US flag's 6 white stripes are a single
+  stroked zigzag path with no fill. The first version of this normalizer
+  unioned all 6 bands into one multi-part path -- which `check_design.py`
+  correctly flagged as "Unconnected" (Ink/Stitch doesn't know what order
+  to stitch disjoint pieces of one object in). Splitting into one element
+  per segment fixed exactly that finding (confirmed: the count dropped by
+  exactly 1 after the fix, matching the one multi-part element removed).
+
+### What this doesn't fix, and how that was confirmed rather than assumed
+
+Running `check_design.py` on the normalized US flag still reports 302
+problems: 250 "Small Fill" and 51 "Unconnected," overwhelmingly from the
+*star shape itself*, not from anything `normalize_svg.py` does. The
+source star path connects its 5 outer points directly (a self-
+intersecting pentagram), which `shapely.validation.make_valid` splits
+into 5 separate polygons per star -- verified directly against the
+star's own path data (`Polygon(...).is_valid` is `False`,
+`explain_validity` reports a self-intersection, `make_valid` returns a
+5-part `MultiPolygon`) -- 50 stars x 5 parts = 250, matching the Small
+Fill count exactly. This is a real property of that specific star's
+geometry, not a normalizer bug, and not something in scope here to
+silently repair.
+
+Verified end-to-end: the real US flag SVG (extremely compact, only 823
+bytes) normalized, run through the full `digitize_svg.py` knockdown
+pipeline (58 shapes survive -- 1 background, 1 canton, 6 stripe bands, 50
+stars), combined with "USA" text via `combine_design_and_text.py`, and
+uploaded to embroider-web's live stitch replay -- all 13 stripes and all
+50 stars land in the correct, standard staggered position.
