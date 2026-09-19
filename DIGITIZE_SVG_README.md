@@ -188,6 +188,39 @@ the aggregate-only version would have hidden it.
   verified via actual stitch bounding boxes and counts, not just visual
   inspection.
 
+## Fill methods available
+
+Every shape `digitize_svg.py` builds is a real Ink/Stitch `FillStitch`
+element (`lib/elements/fill_stitch.py`), not a reimplementation, so it
+carries every `fill_method` Ink/Stitch itself supports:
+
+| `fill_method` | Notes |
+|---|---|
+| `auto_fill` | Default -- what every shape gets unless overridden. |
+| `contour_fill` | Strategy: inner-to-outer / single spiral / double spiral, plus join style, clockwise, avoid-self-crossing. |
+| `guided_fill` | Needs a **guide-line** SVG element attached to the shape -- a real extra path in the source SVG, looked up via `get_marker_elements(node, "guide-line", ...)`, not just a parameter. Strategy: copy or parallel-offset. |
+| `meander_fill` | Needs a tile pattern name (`meander_pattern`), plus angle/scale/clip/smoothness. |
+| `tartan_fill` | Plaid pattern params. |
+| `linear_gradient_fill` | Fills along a gradient. |
+| `circular_fill` | Concentric/radial fill. |
+| `cross_stitch` | Cross-stitch style. |
+| `legacy_fill` | Ink/Stitch's older fill algorithm. |
+
+Only `angle` has a CLI flag today (`--angle INDEX=DEGREES`, verified above).
+The mechanism that sets it -- `shape_params[index][...]` becomes an
+`inkstitch:<param>` XML attribute on the shape, the same attribute a human
+would set by hand in Inkscape's Fill params dialog -- is fully generic:
+any parameter in the table above, `fill_method` included, can already be
+set the same way from Python even with no CLI flag wired up for it yet,
+e.g.:
+
+```python
+digitize_svg(
+    "input.svg", "output.pes",
+    shape_params={0: {"fill_method": "contour_fill", "contour_strategy": 0}},
+)
+```
+
 ## Known limitations / next steps
 
 - Fill angle's sign/axis convention needs precise calibration (see
