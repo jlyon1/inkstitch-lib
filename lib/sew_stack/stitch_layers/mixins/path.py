@@ -1,16 +1,15 @@
 from .protocol import LayerProtocol
-# from ..stitch_layer_editor import Category, Property
+from ..stitch_layer_editor import Category, Property
 from ....i18n import _
 
 
 class PathPropertiesMixin:
     @classmethod
     def path_properties(cls):
-        None
-        # return Category(_("Path")).children(
-        #     Property("reverse_path", _("Reverse path"), type=bool,
-        #              help=_("Reverse the path when stitching this layer."))
-        # )
+        return Category(_("Path")).children(
+            Property("reverse_path", _("Reverse path"), type=bool,
+                     help=_("Reverse the path when stitching this layer."))
+        )
 
 
 class PathMixin:
