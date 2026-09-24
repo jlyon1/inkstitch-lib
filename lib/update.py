@@ -7,7 +7,10 @@ from inkex import errormsg
 
 from .commands import add_commands, ensure_symbol
 from .elements import EmbroideryElement, Stroke
-# from .gui.request_update_svg_version import RequestUpdate
+# Deferred import: lib.gui pulls in wx (via presets.py) at package-init time,
+# and a headless render of an already-versioned document -- every SVG this
+# service generates stamps its own version, so file_version is never 0 here
+# -- never reaches the one call site below that actually needs it.
 from .i18n import _
 from .metadata import InkStitchMetadata
 from .svg import PIXELS_PER_MM
@@ -65,10 +68,10 @@ def automatic_version_update(document, file_version, INKSTITCH_SVG_VERSION, warn
     # make sure the user really wants to update
     if file_version == 0:
         if warn_unversioned:
-            return 
-            # do_update = RequestUpdate()
-            # if do_update.cancelled is True:
-                # return
+            from .gui.request_update_svg_version import RequestUpdate
+            do_update = RequestUpdate()
+            if do_update.cancelled is True:
+                return
     # well then, let's update legeacy params
     # oddly we have to convert this into a list, otherwise a bunch of elements is missing
     for node in list(document.iterdescendants(EMBROIDERABLE_TAGS)):
