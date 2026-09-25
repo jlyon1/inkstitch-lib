@@ -27,10 +27,22 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY uv.lock .
 
-RUN uv sync
+# inkex's pinned git commit (EXTENSIONS_AT_INKSCAPE_1.4.1) generates its own
+# wheel metadata at build time, and that generation is non-deterministic: it
+# has produced a clean `Requires-Dist: lxml (>=4.5.0,<6.0.0)` in some builds
+# and an invalid one (`>=4.5.0,<5.0.0 || >=5.0.0,<6.0.0` -- not valid PEP 440)
+# in others, for the exact same commit. Neither uv nor pip will install a
+# wheel whose metadata they can't parse, so a build can fail on this even
+# though a working build of the identical source is entirely possible --
+# confirmed by vendor/inkex, a real successful build of this commit. Installed
+# from there directly rather than re-built, sidestepping the flaky step.
+RUN uv sync --no-install-package inkex
 
 # Copy the rest of the app
 COPY . .
+
+COPY vendor/inkex .venv/lib/python3.12/site-packages/inkex
+COPY vendor/inkex-1.4.1.dist-info .venv/lib/python3.12/site-packages/inkex-1.4.1.dist-info
 
 # Expose FastAPI port
 EXPOSE 8000

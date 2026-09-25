@@ -1,0 +1,75 @@
+Metadata-Version: 2.4
+Name: inkex
+Version: 1.4.1
+Summary: Python extensions for Inkscape core, separated out from main repository.
+License: GPL-2.0-or-later
+License-File: LICENSE.txt
+Keywords: extensions,graphics,inkscape,svg,vector
+Author: Inkscape Authors
+Author-email: inkscape-devel@lists.inkscape.org
+Maintainer: Martin Owens
+Maintainer-email: doctormo@geek-2.com
+Requires-Python: >=3.8,<4.0
+Classifier: Development Status :: 6 - Mature
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Topic :: Multimedia :: Graphics :: Editors :: Vector-Based
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Dist: Pillow (>=7.0.0)
+Requires-Dist: PyGObject (>=3.36) ; platform_system != "Windows"
+Requires-Dist: cssselect (>=1.2.0,<2.0.0)
+Requires-Dist: lxml (>=4.5.0,<6.0.0)
+Requires-Dist: numpy (>=1.17.0,<2.0.0) ; python_version >= "3.7" and python_version < "3.10"
+Requires-Dist: numpy (>=1.21.2,<3.0.0) ; python_version >= "3.10" and python_version < "4.0"
+Requires-Dist: packaging (>=20.3)
+Requires-Dist: pySerial (>=3.4,<4.0)
+Requires-Dist: pyparsing (>=3.0.9)
+Requires-Dist: scour (>=0.37,<0.38)
+Requires-Dist: tinycss2 (>=1.0.1,<2.0.0)
+Project-URL: Repository, https://gitlab.com/inkscape/extensions
+Description-Content-Type: text/markdown
+
+# inkex & Inkscape extensions
+
+This package supports Inkscape extensions. 
+
+It provides 
+ - a simplification layer for SVG manipulation through lxml
+ - base classes for common types of Inkscape extensions
+ - simplified testing of those extensions
+ - a user interface library based on GTK3
+
+At its core, Inkscape extensions take in a file, and output a file.
+- For effect extensions, those two files are SVG files.
+- For input extensions, the input file may be any arbitrary file and the output is an SVG.
+- For output extensions, the input is an SVG file while the output is an arbitrary file.
+- Some extensions (e.g. the extensions manager) don't manipulate files.
+
+This folder also contains the stock Inkscape extensions, i.e. the scripts that
+implement some commands that you can use from within Inkscape. Most of
+these commands are in the Extensions menu, or in the Open / Save dialogs.
+
+## Documentation
+
+The latest documentation for how to develop Inkscape extensions can be found at
+https://inkscape.gitlab.io/extensions/documentation/.
+
+## Installation
+
+```
+pip install inkex
+```
+
+Inkex releases are currently synchronous with Inkscape releases and share the same version number.
+
+## Publishing an extension on the Inkscape website
+
+Follow the guide on https://inkscape.gitlab.io/extensions/documentation/authors/submit.html#i-want-to-submit-my-extension.
