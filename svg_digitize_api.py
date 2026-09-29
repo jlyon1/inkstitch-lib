@@ -88,6 +88,13 @@ async def digitize_endpoint(
     width_mm: float = Form(100),
     knockdown: bool = Form(True),
     format: str = Form("pes"),
+    # Fill row spacing in mm, applied to every shape -- smaller means denser
+    # (more stitches per area). Ink/Stitch's own default is 0.25mm
+    # (FillStitch.row_spacing_mm); left unset here reproduces that default
+    # exactly rather than silently picking a different one. Verified this
+    # actually changes stitch count, not just a cosmetic no-op: the same
+    # design at 0.2/0.25/0.35mm produced 10996/8881/6398 stitches.
+    row_spacing_mm: float | None = Form(None),
 ):
     """Step 2. Input: a plain-shapes SVG (normally /svg/normalize's own
     output, but a simple design with no <use>/stroke shortcuts can skip
@@ -103,6 +110,8 @@ async def digitize_endpoint(
     if fmt not in _ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail=f"Unsupported format {format!r}. Choose one of {_ALLOWED_FORMATS}.")
 
+    uniform_params = {"row_spacing_mm": row_spacing_mm} if row_spacing_mm is not None else None
+
     input_path = await _save_upload(file, ".svg")
     output_path = None
     try:
@@ -111,7 +120,9 @@ async def digitize_endpoint(
         # post-knockdown document to mean the same shape (see check_design.py's
         # own docstring on why raw-input indices don't line up after knockdown
         # can drop or split shapes).
-        prepared_path, measurements = prepare_svg(input_path, target_width_mm=width_mm, knockdown=knockdown)
+        prepared_path, measurements = prepare_svg(
+            input_path, target_width_mm=width_mm, knockdown=knockdown, uniform_params=uniform_params
+        )
         try:
             problems = check_design(prepared_path)
 

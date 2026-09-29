@@ -149,7 +149,7 @@ def polygon_to_path_d(geom):
     return " ".join(parts)
 
 
-def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=None):
+def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=None, uniform_params=None):
     """Subtract every shape's on-top neighbors from its own area, in document
     (z/paint) order, so two overlapping fills never both stitch the same
     ground -- e.g. a background rect fully covered by a band on top of it
@@ -162,9 +162,14 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
     caller-supplied per-shape stitch params (angle, row_spacing_mm, keyed by
     the same index measurements are reported under) -- measuring before
     subtraction would hand back facts about geometry that may no longer be
-    what actually gets stitched.
+    what actually gets stitched. uniform_params applies to every shape
+    regardless of index -- e.g. one row_spacing_mm for a whole design's
+    stitch density, set before knowing how many shapes will survive
+    knockdown. shape_params (index-keyed) wins on any key both set, since
+    it's the more specific request.
     """
     shape_params = shape_params or {}
+    uniform_params = uniform_params or {}
     with open(svg_path, "rb") as f:
         doc = inkex.load_svg(f).getroot()
 
@@ -188,7 +193,8 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
         path_el.set("d", d)
         path_el.set("fill", color)
         path_el.set("fill-rule", "evenodd")
-        for param, value in shape_params.get(index, {}).items():
+        params = {**uniform_params, **shape_params.get(index, {})}
+        for param, value in params.items():
             path_el.set(f"{{{INKSTITCH_NS}}}{param}", str(value))
         new_elements.append(path_el)
         measurements.append({"index": index, "color": color, **measure_shape(visible)})
@@ -212,7 +218,7 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
     return corrected_path, measurements
 
 
-def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_params=None):
+def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_params=None, uniform_params=None):
     """Build the corrected, ready-to-stitch intermediate SVG and measure
     every shape that will actually produce stitches -- the "inspect before
     committing" half of the pipeline, usable on its own (--measure-only)
@@ -240,8 +246,19 @@ def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_param
     measurements = []
     if knockdown:
         svg_path, measurements = remove_hidden_overlap(
-            svg_path, vb_w, vb_h, target_width_mm, shape_params=shape_params
+            svg_path, vb_w, vb_h, target_width_mm, shape_params=shape_params, uniform_params=uniform_params
         )
+    elif uniform_params:
+        # No knockdown means remove_hidden_overlap (the only place params
+        # get written as inkstitch:* attributes) never runs -- without this,
+        # a caller-requested row_spacing_mm would silently do nothing on a
+        # knockdown=False request instead of applying or erroring.
+        for node in svg.iter():
+            if etree.QName(node).localname in EMBROIDERABLE_TAGS:
+                for param, value in uniform_params.items():
+                    node.set(f"{{{INKSTITCH_NS}}}{param}", str(value))
+        with open(svg_path, "wb") as f:
+            f.write(etree.tostring(svg))
 
     return svg_path, measurements
 
@@ -286,9 +303,10 @@ def write_embroidery_file(prepared_svg_path, output_path):
             sys.stdout = original_stdout
 
 
-def digitize_svg(input_svg_path, output_path, target_width_mm=100, knockdown=True, shape_params=None):
+def digitize_svg(input_svg_path, output_path, target_width_mm=100, knockdown=True, shape_params=None, uniform_params=None):
     svg_path, measurements = prepare_svg(
-        input_svg_path, target_width_mm=target_width_mm, knockdown=knockdown, shape_params=shape_params
+        input_svg_path, target_width_mm=target_width_mm, knockdown=knockdown,
+        shape_params=shape_params, uniform_params=uniform_params,
     )
     write_embroidery_file(svg_path, output_path)
     return svg_path, measurements
