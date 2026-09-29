@@ -41,6 +41,10 @@ XLINK_NS = "http://www.w3.org/1999/xlink"
 
 EMBROIDERABLE_TAGS = ("rect", "path", "polygon", "polyline", "circle", "ellipse", "line", "g")
 
+# Same set, minus "g" -- for the final rebuild loop, which has to emit one
+# leaf shape per node, not the group wrapping them.
+_LEAF_SHAPE_TAGS = ("rect", "path", "polygon", "polyline", "circle", "ellipse", "line")
+
 
 def resolve_uses(root):
     """Recursively replace every <use> with a deep copy of what it
@@ -132,7 +136,18 @@ def normalize_svg(input_svg_path, output_svg_path, target_width_mm=100):
     source = etree.parse(input_svg_path).getroot()
     resolve_uses(source)
 
-    vb_w, vb_h = [float(v) for v in source.get("viewBox").split()[2:]]
+    # Same fallback digitize_svg.py's prepare_svg() uses: a source SVG isn't
+    # guaranteed to declare a viewBox at all (a plain width/height="750"/
+    # "500" document is completely valid SVG) -- falling back to those
+    # raw attrs rather than assuming viewBox exists is what prepare_svg()
+    # already does for exactly this reason, and normalize_svg() needs the
+    # same document dimensions to build its own wrapped intermediate from.
+    viewbox = source.get("viewBox")
+    if viewbox:
+        vb_w, vb_h = [float(v) for v in viewbox.split()[2:]]
+    else:
+        vb_w = float(source.get("width", "100").rstrip("px"))
+        vb_h = float(source.get("height", "100").rstrip("px"))
 
     # Wrap once, unmodified, purely so EmbroideryElement has a real, loaded
     # Ink/Stitch document to read transform-resolved geometry from -- it
@@ -148,7 +163,7 @@ def normalize_svg(input_svg_path, output_svg_path, target_width_mm=100):
 
     final_shapes = []
     for node in doc.iter():
-        if etree.QName(node).localname != "path":
+        if etree.QName(node).localname not in _LEAF_SHAPE_TAGS:
             continue
         # Literal-attribute check, not computed style: good enough to
         # distinguish "stroked line meant to look like a band" from a
