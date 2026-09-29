@@ -34,7 +34,7 @@ from shapely.geometry import LineString
 
 import inkex
 from lib.elements.element import EmbroideryElement
-from digitize_svg import build_wrapped_svg, polygon_to_path_d, PIXELS_PER_MM
+from digitize_svg import build_wrapped_svg, document_dimensions, polygon_to_path_d, PIXELS_PER_MM
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -136,18 +136,9 @@ def normalize_svg(input_svg_path, output_svg_path, target_width_mm=100):
     source = etree.parse(input_svg_path).getroot()
     resolve_uses(source)
 
-    # Same fallback digitize_svg.py's prepare_svg() uses: a source SVG isn't
-    # guaranteed to declare a viewBox at all (a plain width/height="750"/
-    # "500" document is completely valid SVG) -- falling back to those
-    # raw attrs rather than assuming viewBox exists is what prepare_svg()
-    # already does for exactly this reason, and normalize_svg() needs the
-    # same document dimensions to build its own wrapped intermediate from.
-    viewbox = source.get("viewBox")
-    if viewbox:
-        vb_w, vb_h = [float(v) for v in viewbox.split()[2:]]
-    else:
-        vb_w = float(source.get("width", "100").rstrip("px"))
-        vb_h = float(source.get("height", "100").rstrip("px"))
+    # Shared with digitize_svg.py's prepare_svg() -- same viewBox-or-
+    # width/height fallback, same unit handling, one implementation.
+    vb_w, vb_h = document_dimensions(source)
 
     # Wrap once, unmodified, purely so EmbroideryElement has a real, loaded
     # Ink/Stitch document to read transform-resolved geometry from -- it

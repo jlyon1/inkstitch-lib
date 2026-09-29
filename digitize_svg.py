@@ -26,6 +26,7 @@ import inkex  # noqa: E402
 from lib.elements.fill_stitch import FillStitch  # noqa: E402
 from lib.extensions.output import Output  # noqa: E402
 from shapely.ops import unary_union  # noqa: E402
+from svgelements import Length
 
 SVG_NS = "http://www.w3.org/2000/svg"
 INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
@@ -218,6 +219,38 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
     return corrected_path, measurements
 
 
+def _parse_length(value, default="100"):
+    """A bare width/height attribute, in whatever CSS length unit a real
+    SVG happens to use -- Inkscape has written plain "750", "750px", and
+    "595.27559pt" all as valid document widths across its own versions,
+    and other tools add mm/cm/in/pc to that list. svgelements' Length
+    already knows every one of these conversions to the same 96-DPI "user
+    unit" space viewBox coordinates and PIXELS_PER_MM both assume --
+    handles this correctly rather than a hand-rolled .rstrip("px"), which
+    only ever handled a bare "px" suffix or no suffix and crashed
+    (ValueError: could not convert string to float) on anything else,
+    caught on a real Inkscape-exported "pt" file.
+    """
+    return Length(value or default).value(ppi=96)
+
+
+def document_dimensions(source):
+    """(width, height) in real SVG user units (96 DPI) -- prefers an
+    explicit viewBox (the coordinate space shape geometry is actually
+    authored in, which can genuinely differ from the document's own
+    width/height -- some SVGs declare a display size in one unit and an
+    internal viewBox in a totally different numeric scale) and falls back
+    to the width/height attributes only when there is no viewBox at all.
+    """
+    viewbox = source.get("viewBox")
+    if viewbox:
+        _, _, vb_w, vb_h = [float(v) for v in viewbox.split()]
+    else:
+        vb_w = _parse_length(source.get("width"))
+        vb_h = _parse_length(source.get("height"))
+    return vb_w, vb_h
+
+
 def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_params=None, uniform_params=None):
     """Build the corrected, ready-to-stitch intermediate SVG and measure
     every shape that will actually produce stitches -- the "inspect before
@@ -225,16 +258,7 @@ def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_param
     without ever invoking Output.
     """
     source = etree.parse(input_svg_path).getroot()
-
-    # Original width/height may be in px, mm, or unitless -- read the raw
-    # viewBox/width attrs rather than trying to unit-convert, and just
-    # re-declare physical size in mm ourselves, same as the raster path does.
-    viewbox = source.get("viewBox")
-    if viewbox:
-        _, _, vb_w, vb_h = [float(v) for v in viewbox.split()]
-    else:
-        vb_w = float(source.get("width", "100").rstrip("px"))
-        vb_h = float(source.get("height", "100").rstrip("px"))
+    vb_w, vb_h = document_dimensions(source)
 
     shapes = [child for child in source if etree.QName(child).localname in EMBROIDERABLE_TAGS]
     svg = build_wrapped_svg(vb_w, vb_h, target_width_mm, shapes)

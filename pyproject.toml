@@ -24,6 +24,7 @@ dependencies = [
     "pywinutils ; sys_platform == 'win32'",
     "requests",
     "shapely>=2.0.0",
+    "svgelements>=1.9.6",
     "tomli",
     "trimesh>=3.15.2",
     "types-appdirs",
