@@ -82,6 +82,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 FONT_PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', 'src')
 from lib.lettering.utils import get_font_list
 
+# The SVG-digitizing pipeline (normalize -> digitize+check) -- see its own
+# module docstring. A separate router rather than routes defined here, since
+# it's a genuinely separate pipeline from this file's text-to-embroidery one.
+from svg_digitize_api import router as svg_digitize_router
+app.include_router(svg_digitize_router)
+
 # Cache directory for rendered embroidery files
 CACHE_DIR = os.path.join(tempfile.gettempdir(), 'inkstitch_cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
