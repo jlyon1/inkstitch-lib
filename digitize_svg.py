@@ -39,6 +39,15 @@ INKSTITCH_NS = "http://inkstitch.org/namespace"
 # document's original ones.
 PIXELS_PER_MM = 96 / 25.4
 
+# See prepare_svg's own docstring: the floor under which knockdown's
+# FillStitch-based geometry math is never actually run, regardless of how
+# small the real requested output is, so self-intersecting source shapes
+# don't silently lose pieces to Ink/Stitch's own fixed-area validity
+# threshold. 100mm is not a precisely measured minimum -- it's a generous
+# floor chosen to comfortably clear that threshold for realistic design
+# detail; there was no report of shapes vanishing at 100mm+ during testing.
+MIN_SAFE_GEOMETRY_WIDTH_MM = 100
+
 
 def add_inkstitch_metadata(svg):
     metadata = etree.SubElement(svg, f"{{{SVG_NS}}}metadata")
@@ -150,7 +159,7 @@ def polygon_to_path_d(geom):
     return " ".join(parts)
 
 
-def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=None, uniform_params=None):
+def remove_hidden_overlap(svg_path, vb_w, vb_h, geometry_width_mm, shape_params=None, uniform_params=None, output_width_mm=None):
     """Subtract every shape's on-top neighbors from its own area, in document
     (z/paint) order, so two overlapping fills never both stitch the same
     ground -- e.g. a background rect fully covered by a band on top of it
@@ -168,6 +177,16 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
     stitch density, set before knowing how many shapes will survive
     knockdown. shape_params (index-keyed) wins on any key both set, since
     it's the more specific request.
+
+    geometry_width_mm and output_width_mm are deliberately separate.
+    geometry_width_mm must match whatever physical width svg_path (the
+    incoming wrap) was already built at -- it is only used to declare the
+    *coordinate space* the corrected doc's viewBox is in, matching where
+    FillStitch.shape's extracted coordinates actually live. output_width_mm
+    (defaults to geometry_width_mm) is the real physical size to declare
+    for the finished document -- see prepare_svg's own comment for why a
+    caller may deliberately ask for shape math at a larger scale than the
+    real requested output size.
     """
     shape_params = shape_params or {}
     uniform_params = uniform_params or {}
@@ -208,11 +227,14 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, target_width_mm, shape_params=No
     # whole design (caught by comparing stitch bounding boxes against the
     # non-knockdown output: this was off by exactly that conversion factor).
     # The new document's viewBox has to match the space the coordinates are
-    # actually in, so express it directly in that same physical scale.
-    px_w = target_width_mm * PIXELS_PER_MM
-    px_h = (target_width_mm * (vb_h / vb_w)) * PIXELS_PER_MM
+    # actually in (geometry_width_mm, matching svg_path's own scale), so
+    # express it directly in that same physical scale -- output_width_mm is
+    # a separate, purely declarative choice of the finished document's
+    # physical size (see this function's own docstring).
+    px_w = geometry_width_mm * PIXELS_PER_MM
+    px_h = (geometry_width_mm * (vb_h / vb_w)) * PIXELS_PER_MM
 
-    corrected = build_wrapped_svg(px_w, px_h, target_width_mm, new_elements)
+    corrected = build_wrapped_svg(px_w, px_h, output_width_mm or geometry_width_mm, new_elements)
     corrected_fd, corrected_path = tempfile.mkstemp(suffix=".svg")
     with os.fdopen(corrected_fd, "wb") as f:
         f.write(etree.tostring(corrected))
@@ -256,12 +278,32 @@ def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_param
     every shape that will actually produce stitches -- the "inspect before
     committing" half of the pipeline, usable on its own (--measure-only)
     without ever invoking Output.
+
+    Runs the actual knockdown/FillStitch geometry math at
+    max(target_width_mm, MIN_SAFE_GEOMETRY_WIDTH_MM), then declares the
+    *real* target_width_mm only in the final corrected document (a pure
+    viewBox/width relabeling -- remove_hidden_overlap's output_width_mm --
+    not a recomputation). This exists because Ink/Stitch's own
+    FillStitch.shape (lib/elements/fill_stitch.py) hardcodes an absolute
+    minimum area (min_size=3 in its own internal unit space) when cleaning
+    up self-intersecting source geometry via make_valid() -- a threshold
+    that does not scale with target_width_mm, so a shape needing that
+    cleanup (e.g. a star drawn as one self-intersecting pentagram path,
+    which make_valid splits into several small triangles) can have all its
+    pieces fall below that fixed threshold at a small physical size and
+    vanish entirely, while surviving fine at a larger one. Caught on a real
+    50-star flag SVG: 58 shapes survived knockdown at 100/150mm, only 8 at
+    50mm -- 44 stars silently gone, not smaller. Simple shapes (no
+    self-intersection, nothing for make_valid to touch) are unaffected at
+    any size; this fix costs them nothing since the final rescale is
+    purely declarative.
     """
     source = etree.parse(input_svg_path).getroot()
     vb_w, vb_h = document_dimensions(source)
+    geometry_width_mm = max(target_width_mm, MIN_SAFE_GEOMETRY_WIDTH_MM) if knockdown else target_width_mm
 
     shapes = [child for child in source if etree.QName(child).localname in EMBROIDERABLE_TAGS]
-    svg = build_wrapped_svg(vb_w, vb_h, target_width_mm, shapes)
+    svg = build_wrapped_svg(vb_w, vb_h, geometry_width_mm, shapes)
 
     svg_fd, svg_path = tempfile.mkstemp(suffix=".svg")
     with os.fdopen(svg_fd, "wb") as f:
@@ -270,7 +312,8 @@ def prepare_svg(input_svg_path, target_width_mm=100, knockdown=True, shape_param
     measurements = []
     if knockdown:
         svg_path, measurements = remove_hidden_overlap(
-            svg_path, vb_w, vb_h, target_width_mm, shape_params=shape_params, uniform_params=uniform_params
+            svg_path, vb_w, vb_h, geometry_width_mm, shape_params=shape_params,
+            uniform_params=uniform_params, output_width_mm=target_width_mm,
         )
     elif uniform_params:
         # No knockdown means remove_hidden_overlap (the only place params
