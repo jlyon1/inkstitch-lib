@@ -48,6 +48,22 @@ PIXELS_PER_MM = 96 / 25.4
 # detail; there was no report of shapes vanishing at 100mm+ during testing.
 MIN_SAFE_GEOMETRY_WIDTH_MM = 100
 
+# See remove_hidden_overlap's own comment on where this is used. Below this
+# ratio, a shape's "long axis" is close enough to arbitrary (a near-circle,
+# a near-square) that forcing a fill angle onto it isn't worth doing; above
+# it, getting the angle right measurably changes stitch density, verified
+# on a real martini-glass stem (aspect_ratio 14.36, width 1.87mm).
+ASPECT_RATIO_ANGLE_THRESHOLD = 2.0
+
+# Ink/Stitch's own FillStitch.row_spacing default (lib/elements/fill_stitch.py:
+# get_float_param("row_spacing_mm", 0.25)) -- used as the baseline to widen
+# from when nothing else was actually requested for a thin shape.
+DEFAULT_ROW_SPACING_MM = 0.25
+
+# See remove_hidden_overlap's own comment on where these are used.
+THIN_SHAPE_WIDTH_MM = 5.0
+MAX_ROWS_FOR_THIN_SHAPES = 4
+
 
 def add_inkstitch_metadata(svg):
     metadata = etree.SubElement(svg, f"{{{SVG_NS}}}metadata")
@@ -213,11 +229,53 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, geometry_width_mm, shape_params=
         path_el.set("d", d)
         path_el.set("fill", color)
         path_el.set("fill-rule", "evenodd")
-        params = {**uniform_params, **shape_params.get(index, {})}
+
+        measurement = measure_shape(visible)
+        params = {**uniform_params}
+        # Ink/Stitch's own angle default is a flat 0 degrees (get_float_param
+        # in fill_stitch.py) -- fine for a roughly round/square shape, where
+        # no direction is meaningfully better than another, but wrong often
+        # enough to matter for anything elongated: rows running across a
+        # narrow shape's short axis instead of along its long one still
+        # cover the same area, but need far more of them (row_spacing_mm
+        # applies across whichever axis the rows run perpendicular to), each
+        # one short, which reads as "way too dense" even though row spacing
+        # never changed. measure_shape's own long_axis_angle_degrees is
+        # exactly the fix -- already computed here for every shape, just
+        # never applied until now. ASPECT_RATIO_ANGLE_THRESHOLD guards
+        # against forcing an angle onto a shape too close to round for
+        # "long axis" to mean much (a near-circle's minimum-rotated-
+        # rectangle angle is essentially noise).
+        if measurement["aspect_ratio"] and measurement["aspect_ratio"] >= ASPECT_RATIO_ANGLE_THRESHOLD:
+            params["angle"] = measurement["long_axis_angle_degrees"]
+
+        # Second, independent fix for the same "way too dense" symptom:
+        # even with the angle now correct, a genuinely narrow shape (under
+        # THIN_SHAPE_WIDTH_MM) still packs an unreasonable number of rows
+        # across its own short axis at a row_spacing_mm tuned for a normal-
+        # sized area -- e.g. a 1.87mm-wide sliver at 0.25mm spacing is ~7.5
+        # rows, each barely longer than the width itself, before this fix.
+        # Capping to MAX_ROWS_FOR_THIN_SHAPES by widening spacing (never
+        # narrowing -- an explicit denser request from the caller still
+        # wins below) measurably fixed this on a real design: isolated
+        # (angle-only-fixed) stem shape went from 310 stitches to 178 once
+        # this was added on top, a 43% drop on top of angle's own ~6%.
+        # Deliberately keyed on absolute width_mm, not aspect_ratio: a
+        # 12mm-wide elongated shape at the same 0.25mm spacing is a normal
+        # ~48 rows, not a density problem, and this must not touch it.
+        width_mm = measurement.get("width_mm") or 0
+        if 0 < width_mm < THIN_SHAPE_WIDTH_MM:
+            requested_spacing = params.get("row_spacing_mm", DEFAULT_ROW_SPACING_MM)
+            min_spacing_for_width = width_mm / MAX_ROWS_FOR_THIN_SHAPES
+            if min_spacing_for_width > requested_spacing:
+                params["row_spacing_mm"] = min_spacing_for_width
+
+        params.update(shape_params.get(index, {}))  # explicit request always wins
+
         for param, value in params.items():
             path_el.set(f"{{{INKSTITCH_NS}}}{param}", str(value))
         new_elements.append(path_el)
-        measurements.append({"index": index, "color": color, **measure_shape(visible)})
+        measurements.append({"index": index, "color": color, **measurement})
 
     # FillStitch.shape returns coordinates in Ink/Stitch's own physical unit
     # space (96 units/inch, same convention as PIXELS_PER_MM elsewhere in
