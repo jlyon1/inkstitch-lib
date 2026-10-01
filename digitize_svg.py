@@ -264,18 +264,24 @@ def remove_hidden_overlap(svg_path, vb_w, vb_h, geometry_width_mm, shape_params=
         # 12mm-wide elongated shape at the same 0.25mm spacing is a normal
         # ~48 rows, not a density problem, and this must not touch it.
         width_mm = measurement.get("width_mm") or 0
+        thin_shape_adjusted = False
         if 0 < width_mm < THIN_SHAPE_WIDTH_MM:
             requested_spacing = params.get("row_spacing_mm", DEFAULT_ROW_SPACING_MM)
             min_spacing_for_width = width_mm / MAX_ROWS_FOR_THIN_SHAPES
             if min_spacing_for_width > requested_spacing:
                 params["row_spacing_mm"] = min_spacing_for_width
+                thin_shape_adjusted = True
 
         params.update(shape_params.get(index, {}))  # explicit request always wins
 
         for param, value in params.items():
             path_el.set(f"{{{INKSTITCH_NS}}}{param}", str(value))
         new_elements.append(path_el)
-        measurements.append({"index": index, "color": color, **measurement})
+        # thin_shape_adjusted: surfaced so a caller (an end-user-facing page,
+        # say) can tell someone "this area was narrow enough that we widened
+        # the stitch spacing automatically" -- a real, actionable fact about
+        # the output, not something to silently apply and never mention.
+        measurements.append({"index": index, "color": color, "thin_shape_adjusted": thin_shape_adjusted, **measurement})
 
     # FillStitch.shape returns coordinates in Ink/Stitch's own physical unit
     # space (96 units/inch, same convention as PIXELS_PER_MM elsewhere in
