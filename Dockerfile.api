@@ -2,7 +2,9 @@
 # Build time: ~3-5 minutes (vs 20+ minutes with wxPython)
 FROM python:3.12-slim
 
-# Install system dependencies for embroidery generation
+# Install system dependencies for embroidery generation. No
+# libgirepository/gir1.2-glib here -- see Stage 4 on why PyGObject (the
+# only thing that would need them) is deliberately skipped.
 RUN apt-get update && apt-get install -y \
     git \
     gcc \
@@ -11,26 +13,38 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libcairo2-dev \
     libgeos-dev \
-    libgirepository1.0-dev \
-    gir1.2-glib-2.0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy only necessary files first (for better layer caching)
+# digitize_svg.py/normalize_svg.py/check_design.py/svg_digitize_api.py: the
+# SVG-digitizing pipeline (see that last file's own docstring) --
+# batch_text_to_pes.py imports svg_digitize_api at module load, so omitting
+# any of these isn't a missing-feature gap, it's a container that fails to
+# start at all.
 COPY batch_text_to_pes.py gunicorn_config.py check_dependencies.py ./
+COPY digitize_svg.py normalize_svg.py check_design.py svg_digitize_api.py ./
 COPY lib ./lib
 COPY fonts ./fonts
 
 # Install Python dependencies in stages to handle build issues
-# Stage 1: Install core dependencies
+# Stage 1: Install core dependencies. python-multipart: FastAPI's own
+# runtime requirement for Form()/UploadFile() (every endpoint in this
+# codebase, text-to-pes and svg-digitize alike) -- not optional despite
+# not being `import`-ed anywhere directly; omitting it boots fine and
+# fails the instant a real request with form data or a file upload comes
+# in. svgpathtools: batch_text_to_pes.py's own top-level import, needed
+# just to boot regardless of which endpoint is actually hit.
 RUN pip install --no-cache-dir \
     gunicorn \
     'fastapi>=0.100.0' \
     'uvicorn>=0.20.0' \
     'lxml>=4.5.0,<6.0.0' \
-    'numpy>=2.0.0'
+    'numpy>=2.0.0' \
+    python-multipart \
+    svgpathtools
 
 # Stage 2: Install packages that may need compilation
 RUN pip install --no-cache-dir \
@@ -38,7 +52,9 @@ RUN pip install --no-cache-dir \
     shapely \
     trimesh
 
-# Stage 3: Install pure Python packages
+# Stage 3: Install pure Python packages, including inkex's own non-GUI
+# runtime dependencies (see Stage 4) -- installed ahead of inkex itself so
+# Stage 4 can use --no-deps and still end up with a fully working install.
 RUN pip install --no-cache-dir \
     pystitch \
     colormath2 \
@@ -46,11 +62,48 @@ RUN pip install --no-cache-dir \
     networkx \
     diskcache \
     platformdirs \
-    requests
+    requests \
+    svgelements \
+    Pillow \
+    tinycss2 \
+    pyserial \
+    scour \
+    pyparsing \
+    cssselect
 
-# Stage 4: Install inkex from git
-RUN pip install --no-cache-dir \
-    'git+https://gitlab.com/inkscape/extensions.git@EXTENSIONS_AT_INKSCAPE_1.4.1'
+# Stage 4: Install inkex from git, with two deliberate deviations from a
+# plain `pip install git+...`:
+#
+# 1. The patch: upstream's pyproject.toml declares
+#    `lxml = "^4.5.0 || ^5.0.0"`, valid Poetry syntax but not valid PEP 508
+#    (no OR operator between ranges), and whatever exports it doesn't
+#    collapse the two adjacent ranges into one before writing Requires-Dist,
+#    so pip's metadata parser rejects the package outright with "Expected
+#    matching RIGHT_PARENTHESIS" before ever reaching dependency resolution
+#    -- no pip version tolerates this, it's a genuine syntax error in the
+#    published metadata, not a strictness regression. The two ranges are
+#    contiguous (^4.5.0 is >=4.5.0,<5.0.0; ^5.0.0 is >=5.0.0,<6.0.0), so
+#    patching to the equivalent single range before the build backend
+#    generates metadata is a safe, semantics-preserving fix.
+#
+# 2. --no-deps: inkex's own declared dependencies include
+#    PyGObject>=3.36 (GTK/GObject-Introspection bindings -- Inkscape's own
+#    GUI toolkit, not used by anything this headless pipeline touches,
+#    the same reasoning this codebase already applies to wx -- see
+#    lib/extensions/__init__.py's own comment on that). Recent PyGObject
+#    needs girepository-2.0, which isn't available as an apt package on
+#    this base image, so installing it is both unnecessary and currently
+#    not buildable here. Every dependency inkex actually imports at
+#    runtime for our code paths (verified against a real normalize+
+#    knockdown+fill-generation run, not just `import inkex`) is installed
+#    explicitly above instead of resolved from inkex's own declared list.
+RUN git clone --quiet --filter=blob:none https://gitlab.com/inkscape/extensions.git /tmp/inkex-src \
+    && cd /tmp/inkex-src \
+    && git checkout -q EXTENSIONS_AT_INKSCAPE_1.4.1 \
+    && git submodule update --init --recursive -q \
+    && python3 -c "import pathlib; p = pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('lxml = \"^4.5.0 || ^5.0.0\"', 'lxml = \">=4.5.0,<6.0.0\"'))" \
+    && pip install --no-cache-dir --no-deps . \
+    && rm -rf /tmp/inkex-src
 
 # Expose FastAPI port
 EXPOSE 8000
