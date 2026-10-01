@@ -30,7 +30,7 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from check_design import check_design
-from digitize_svg import prepare_svg, write_embroidery_file
+from digitize_svg import DesignTooComplexError, prepare_svg, write_embroidery_file
 
 router = APIRouter(prefix="/svg", tags=["svg-digitize"])
 
@@ -136,6 +136,8 @@ async def digitize_endpoint(
             os.unlink(prepared_path)
     except HTTPException:
         raise
+    except DesignTooComplexError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not digitize this SVG: {exc}") from exc
     finally:
